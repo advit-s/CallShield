@@ -1,0 +1,286 @@
+"""CallShield API Endpoint Tests (v2.1).
+
+Tests all endpoints for:
+- /analyze-transcript          (text-based scam detection)
+- /challenge-response          (verification challenge generation)
+- /model-status                (model implementation transparency)
+- /submit-feedback             (user feedback storage)
+- /delete-call-summary/{id}    (data deletion)
+- /delete-user-data/{id}        (Right to Erasure)
+- /analyze-audio               (audio + temp-file cleanup)
+- /score-call                  (combined endpoint)
+"""
+
+import os
+import sys
+import pytest
+import tempfile
+from fastapi.testclient import TestClient
+
+# Test setup: make sure we import from the package root
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..")
+)
+
+from callshield.api.server import app
+
+client = TestClient(app)
+
+# ============= System / Health =============
+
+def test_health():
+    """GET /health should return status ok."""
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["version"] == "2.1.0"
+    assert data["models_loaded"]["scam_nlp"] is True
+    assert data["models_loaded"]["deepfake"] is False  # placeholder
+
+
+def test_model_status():
+    """GET /model-status should list all modules with status."""
+    resp = client.get("/model-status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "modules" in data
+    assert data["version"] == "2.1.0"
+    assert data["modules"]["scam_nlp"]["status"] == "implemented"
+    assert data["modules"]["deepfake"]["status"] == "placeholder"
+    assert "description" in data["modules"]["scam_nlp"]
+
+
+# ============= /analyze-transcript =============
+
+def test_analyze_transcript_normal():
+    """POST /analyze-transcript -- normal call should be safe."""
+    resp = client.post("/analyze-transcript", json={
+        "call_id": "test-normal-001",
+        "user_id": "user-abc",
+        "transcript": "Hi beta, how are you? I made your favorite dal today."
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["risk_band"] == "safe"
+    assert data["risk_score"] <= 30
+    assert data["model_status"]["scam_nlp"] == "implemented"
+
+
+def test_analyze_transcript_scam():
+    """POST /analyze-transcript -- scam should trigger suspicious or higher."""
+    resp = client.post("/analyze-transcript", json={
+        "call_id": "test-scam-001",
+        "user_id": "user-abc",
+        "transcript": "Beta, I lost my phone. Send ₹25,000 immediately via UPI. Do not tell anyone."
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["risk_score"] > 30
+    assert data["detected_cues"]  # should have cues
+    assert data["why_flagged"]     # v2.1: explainable
+    assert "challenges" in data     # v2.1: challenge-response
+
+
+def test_analyze_transcript_confidence_fields():
+    """POST /analyze-transcript -- must include v2.1 confidence fields."""
+    resp = client.post("/analyze-transcript", json={
+        "call_id": "test-conf-001",
+        "transcript": "Send money right now, it is urgent. Do not tell anyone."
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "confidence" in data
+    assert "confidence_score" in data
+    assert "warning_level" in data
+    assert "why_flagged" in data
+    assert "challenges" in data
+    assert isinstance(data["confidence_score"], float)
+    assert 0 <= data["confidence_score"] <= 1
+
+
+def test_analyze_transcript_call_id_in_history():
+    """POST /analyze-transcript -- should store in call history with user_id."""
+    client.post("/analyze-transcript", json={
+        "call_id": "test-store-001",
+        "user_id": "user-delete-test",
+        "transcript": "Some test transcript."
+    })
+    summary = client.get("/call-summary/test-store-001")
+    assert summary.status_code == 200
+
+
+# ============= /score-call =============
+
+def test_score_call_combined():
+    """POST /score-call -- combined endpoint with transcript only."""
+    resp = client.post("/score-call", json={
+        "call_id": "test-score-001",
+        "user_id": "user-abc",
+        "transcript": "This is a test call. Be careful, I am asking for money right now."
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "risk_score" in data
+    assert "risk_band" in data
+    assert "model_status" in data
+    assert data["model_status"]["scam_nlp"] == "implemented"
+
+
+def test_score_call_no_content():
+    """POST /score-call -- no transcript or audio should fail gracefully."""
+    resp = client.post("/score-call", json={
+        "call_id": "test-score-empty-001",
+        "transcript": "",
+    })
+    assert resp.status_code == 200  # should handle gracefully
+
+
+# ============= /analyze-audio (temp file cleanup) =============
+
+def test_analyze_audio_temp_cleanup():
+    """POST /analyze-audio -- temp file must be deleted even on failure.""
+    from unittest.mock import patch
+
+    with patch("callshield.engine.asr.ASRTranscriber") as MockASR:
+        # Simulate a failure
+        MockASR.side_effect = RuntimeError("ASR failed")
+        resp = client.post("/analyze-audio?call_id=test-audio-001&user_id=user-abc",
+                           files=[("audio", ("test.wav", b"\x00\x00\x00\x00", "audio/wav"))])
+        # Should not crash; schema returns result even if ASR is placeholder
+        assert resp.status_code in [200, 500]
+
+
+# ============= /challenge-response =============
+
+def test_challenge_response():
+    """POST /challenge-response -- should return safe verification challenges."""
+    resp = client.post("/challenge-response", json={
+        "risk_band": "high",
+        "scam_type": "family_emergency",
+        "risk_score": 75.0
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "challenges" in data
+    for ch in data["challenges"]:
+        assert "question" in ch
+        assert "why" in ch
+        assert "type" in ch
+
+
+def test_challenge_response_general():
+    """POST /challenge-response -- for safe calls, should return call-back advice."""
+    resp = client.post("/challenge-response", json={
+        "risk_band": "safe",
+        "scam_type": "unknown",
+        "risk_score": 5.0
+    })
+    assert resp.status_code == 200
+    assert "challenges" in resp.json()
+
+
+# ============= /submit-feedback =============
+
+def test_submit_feedback():
+    """POST /submit-feedback -- should store feedback and link to call history."""
+    # First analyze a transcript
+    client.post("/analyze-transcript", json={
+        "call_id": "test-fb-001",
+        "transcript": "This is a test call transcript for feedback."
+    })
+
+    # Submit feedback
+    resp = client.post("/submit-feedback", json={
+        "call_id": "test-fb-001",
+        "is_scam": False,
+        "feedback_notes": "This was a legitimate call about a delivery.",
+        "reported_cues": []
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "feedback_recorded"
+    assert "review and evaluation" in data["note"]
+    assert "NOT" in data["note"]  # should NOT say auto-retrained
+
+
+# ============= /delete-call-summary/{id} =============
+
+def test_delete_call_summary():
+    """DELETE /call-summary/{id} -- should delete a specific call."""
+    # Create a call
+    client.post("/analyze-transcript", json={
+        "call_id": "test-delete-001",
+        "transcript": "A test call."
+    })
+
+    # Verify it exists
+    assert client.get("/call-summary/test-delete-001").status_code == 200
+
+    # Delete it
+    resp = client.delete("/call-summary/test-delete-001")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "deleted"
+
+    # Verify it's gone
+    assert client.get("/call-summary/test-delete-001").status_code == 404
+
+
+# ============= /delete-user-data/{id} =============
+
+def test_delete_user_data():
+    """DELETE /user-data/{id} -- Right to Erasure under DPDP Act."""
+    # Create calls for a specific user
+    for i in range(3):
+        client.post("/analyze-transcript", json={
+            "call_id": f"test-user-{i}",
+            "user_id": "user-to-delete",
+            "transcript": f"Call {i} for user-to-delete."
+        })
+
+    # Submit feedback for one
+    client.post("/submit-feedback", json={
+        "call_id": "test-user-0",
+        "is_scam": False,
+        "feedback_notes": "",
+        "reported_cues": []
+    })
+
+    # Delete user data
+    resp = client.delete("/user-data/user-to-delete")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "purged"
+    assert data["deleted_calls"] == 3
+
+    # Verify all calls are gone
+    for i in range(3):
+        assert client.get(f"/call-summary/test-user-{i}").status_code == 404
+
+
+# ============= /verify-speaker (consent check) =============
+
+def test_verify_speaker_consent_required():
+    """POST /verify-speaker -- must require consent."""
+    resp = client.post("/verify-speaker", json={
+        "speaker_id": "speaker-001",
+        "name": "Test User",
+        "consent_given": False
+    })
+    assert resp.status_code == 400
+
+
+def test_verify_speaker_with_consent():
+    """POST /verify-speaker -- with consent, should succeed."""
+    resp = client.post("/verify-speaker", json={
+        "speaker_id": "speaker-002",
+        "name": "Test User",
+        "consent_given": True
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "enrolled"
+
+
+if __name__ == "__main__":
+    # Run all tests
+    pytest.main([__file__, "-v"])

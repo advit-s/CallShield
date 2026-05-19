@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallShield AI - Real-time Deepfake Call Detector</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --safe: #10b981;
+            --safe-dark: #059669;
+            --warn: #f59e0b;
+            --warn-dark: #d97706;
+            --danger: #ef4444;
+            --danger-dark: #dc2626;
+            --bg: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            --card: #1e293b;
+            --card-hover: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 1.5rem 0; border-bottom: 1px solid var(--border); margin-bottom: 2rem;
+        }
+
+        .logo {
+            display: flex; align-items: center; gap: 12px; font-size: 1.5rem;
+            font-weight: 700; letter-spacing: -0.5px;
+        }
+
+        .logo-icon {
+            width: 40px; height: 40px; background: var(--danger);
+            border-radius: 10px; display: flex; align-items: center;
+            justify-content: center; font-size: 1.2rem;
+        }
+
+        .status-bar {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.875rem; color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: var(--safe);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+        .card {
+            background: var(--card); border-radius: 16px; padding: 24px;
+            border: 1px solid var(--border); backdrop-filter: blur(10px);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .card:hover { transform: translateY(-2px); border-color: #475569; }
+
+        .card-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 1rem; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem;
+        }
+
+        .call-interface { grid-column: 1 / -1; text-align: center; padding: 48px 24px; }
+
+        .caller-id { font-size: 1.1rem; color: var(--text-muted); margin-bottom: 1rem; }
+
+        .caller-number { font-size: 2rem; font-weight: 700; margin-bottom: 2rem; }
+
+        .controls { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+        .btn {
+            padding: 14px 32px; border: none; border-radius: 12px; font-size: 1rem;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+
+        .btn-grn { background: var(--safe); color: white; }
+        .btn-red { background: var(--danger); color: white; }
+        .btn-amber { background: var(--warn); color: #1e293b; }
+        .btn-blue { background: #3b82f6; color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .risk-gauge {
+            grid-column: 1; text-align: center;
+            position: relative;
+        }
+
+        .gauge-container { position: relative; display: inline-block; }
+
+        .gauge-value {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 3.5rem; font-weight: 700;
+        }
+
+        .gauge-label {
+            margin-top: 16px; font-size: 1.1rem; color: var(--text-muted);
+        }
+
+        .risk-band-badge {
+            display: inline-block; padding: 6px 20px; border-radius: 20px;
+            font-weight: 700; font-size: 0.875rem; margin-top: 12px;
+        }
+
+        .band-low { background: rgba(16,185,129,0.2); color: var(--safe); }
+        .band-medium { background: rgba(245,158,11,0.2); color: var(--warn); }
+        .band-high { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+        .signals-grid { grid-column: 2; }
+
+        .signal-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid var(--border);
+        }
+
+        .signal-label { font-weight: 500; }
+        .signal-bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; margin: 0 16px; overflow: hidden; }
+        .signal-fill { height: 100%; border-radius: 4px; transition: width 0.5s, background 0.5s; }
+        .signal-value { font-weight: 600; min-width: 40px; text-align: right; }
+
+        .transcript-box { grid-column: 1 / -1; }
+
+        #transcript-content {
+            padding: 16px; background: #0f172a; border-radius: 8px;
+            min-height: 120px; font-size: 0.95rem; line-height: 1.6;
+            white-space: pre-wrap; overflow-y: auto; max-height: 250px;
+        }
+
+        .highlight-danger { background: rgba(239,68,68,0.3); padding: 2px 4px; border-radius: 3px; }
+
+        .alert-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); display: none;
+            align-items: center; justify-content: center; z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .alert-card {
+            background: var(--card); border-radius: 20px; padding: 40px;
+            text-align: center; max-width: 500px; margin: 0 20px;
+            border: 2px solid var(--danger);
+        }
+
+        .alert-icon { font-size: 4rem; margin-bottom: 16px; animation: shake 0.5s ease; }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .alert-title { font-size: 2rem; font-weight: 700; color: var(--danger); margin-bottom: 12px; }
+        .alert-msg { color: var(--text-muted); margin-bottom: 24px; font-size: 1.1rem; }
+
+        @media (max-width: 768px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .risk-gauge, .signals-grid { grid-column: 1 / -1; }
+        }
+
+        .cues { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .cue-tag {
+            padding: 4px 12px; border-radius: 20px; font-size: 0.8rem;
+            background: var(--border); color: var(--text-muted);
+        }
+        .cue-danger { background: rgba(239,68,68,0.2); color: var(--danger); }
+        .cue-warn { background: rgba(245,158,11,0.2); color: var(--warn); }
+
+        .demo-selector { margin-bottom: 2rem; }
+        .demo-selector label { color: var(--text-muted); display: block; margin-bottom: 0.5rem; }
+        .demo-selector select {
+            padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--card); color: var(--text); font-size: 1rem; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">🛡️</div>
+                <span>CallShield AI</span>
+            </div>
+            <div class="status-bar">
+                <div class="status-dot" id="status-dot"></div>
+                <span>System Active</span>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <!-- Call Interface -->
+            <div class="card call-interface">
+                <div class="demo-selector">
+                    <label>Demo Scenario:</label>
+                    <select id="scenario-select">
+                        <option value="normal">Normal Call (Family Check-in)</option>
+                        <option value="fake_wedding">Fake Wedding Vendor Scam</option>
+                        <option value="deepfake">AI-Deepfake Friend Emergency</option>
+                        <option value="tech_support">Tech Support Scam</option>
+                        <option value="bank">Bank Impersonation Scam</option>
+                    </select>
+                </div>
+                <div class="caller-id">Incoming call</div>
+                <div class="caller-number" id="caller-name">Mom</div>
+                <div class="controls">
+                    <button class="btn btn-grn" id="btn-accept">📞 Accept</button>
+                    <button class="btn btn-red" id="btn-decline" style="display:none">🛑 End Call</button>
+                    <button class="btn btn-blue" id="btn-record" disabled>⏺️ Simulate</button>
+                </div>
+            </div>
+
+            <!-- Risk Gauge -->
+            <div class="card risk-gauge">
+                <div class="card-header">Risk Score</div>
+                <div class="gauge-container">
+                    <svg width="200" height="200" viewBox="0 0 200 200">
+                        <circle cx="100" cy="100" r="90" fill="none" stroke="#1e293b" stroke-width="12" />
+                        <circle cx="100" cy="100" r="90" fill="none" stroke="url(#gaugeGrad)" stroke-width="12"
+                                stroke-dasharray="565.48" stroke-dashoffset="565.48"
+                                stroke-linecap="round" transform="rotate(-90 100 100)" id="gauge-circle" />
+                        <defs>
+                            <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#10b981" />
+                                <stop offset="50%" stop-color="#f59e0b" />
+                                <stop offset="100%" stop-color="#ef4444" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <div class="gauge-value" id="risk-val">0</div>
+                </div>
+                <div class="gauge-label">out of 100</div>
+                <div class="risk-band-badge band-low" id="risk-band">SAFE</div>
+                <div class="cues" id="cues"></div>
+            </div>
+
+            <!-- Signals -->
+            <div class="card signals-grid">
+                <div class="card-header">Real-time Signals</div>
+                <div class="signal-row">
+                    <span class="signal-label">🔊 Deepfake Voice</span>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-df" style="width:0%; background:#10b981"></div></div>
+                    <span class="signal-value" id="val-df">0%</span>
+                </div>
+                <div class="signal-row">
+                    <span class="signal-label">💬 Scam Language</span>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-scam" style="width:0%; background:#10b981"></div></div>
+                    <span class="signal-value" id="val-scam">0%</span>
+                </div>
+                <div class="signal-row">
+                    <span class="signal-label">👤 Voice Mismatch</span>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-id" style="width:0%; background:#10b981"></div></div>
+                    <span class="signal-value" id="val-id">0%</span>
+                </div>
+            </div>
+
+            <!-- Transcript -->
+            <div class="card transcript-box">
+                <div class="card-header">Live Transcript</div>
+                <div id="transcript-content">Call not started yet...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- High Risk Alert -->
+    <div class="alert-overlay" id="alert-overlay">
+        <div class="alert-card">
+            <div class="alert-icon">⚠️</div>
+            <div class="alert-title" id="alert-title">SCAM DETECTED</div>
+            <div class="alert-msg" id="alert-msg">This call shows multiple high-risk indicators. Do not share personal information or send money.</div>
+            <div class="controls">
+                <button class="btn btn-red" id="btn-hangup">Hang Up Now</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---- Demo Scenario Data ----
+        const SCENARIOS = {
+            normal: {
+                name: "Mom", number: "Mom",
+                transcript: [
+                    { text: "Hi beta, I just wanted to check if you're doing okay today.", delay: 1000, df: 0, scam: 0, id: 0 },
+                    { text: "I'm cooking your favorite dal today, come over for dinner sometime.", delay: 3000, df: 0, scam: 0, id: 0 },
+                    { text: "No need to send any money or anything, just wanted to hear your voice!", delay: 5000, df: 0, scam: 0, id: 0 },
+                    { text: "Talk to you later, bye!", delay: 7000, df: 0, scam: 0, id: 0 }
+                ]
+            },
+            fake_wedding: {
+                name: "Nisha (Your Sister)", number: "Unknown number claiming: Nisha",
+                transcript: [
+                    { text: "Bhaiya, my phone battery died so I'm using my friend's phone. Listen carefully.", delay: 1500, df: 0.15, scam: 0.3, id: 0 },
+                    { text: "The wedding venue is asking for the final ₹50,000 payment RIGHT NOW or they cancel our booking.", delay: 4000, df: 0.25, scam: 0.7, id: 0 },
+                    { text: "Transfer the money immediately to UPI ID: venue.wedding@upi and don't tell anyone, it's going to be a surprise.", delay: 7000, df: 0.35, scam: 0.9, id: 0 },
+                    { text: "I can't talk long. Just send it quick, okay? Don't call my number, it's dead.", delay: 10000, df: 0.45, scam: 0.95, id: 0 }
+                ]
+            },
+            deepfake: {
+                name: "Rohan (Your Best Friend)", number: "Rohan's voice from: Unknown",
+                transcript: [
+                    { text: "Hey buddy, this is me Rohan. I lost my phone and I'm calling from a friend of mine.", delay: 1000, df: 0.6, scam: 0.2, id: 0.3 },
+                    { text: "Look, I'm in real trouble. I'm stuck near the airport and need ₹40,000 ASAP.", delay: 3500, df: 0.75, scam: 0.6, id: 0.5 },
+                    { text: "Please don't call my parents, they'll panic. I know the safe word but I can't say it now.", delay: 6000, df: 0.85, scam: 0.8, id: 0.7 },
+                    { text: "Just transfer the money to this UPI number: payments@upifast - do it in the next 5 minutes!", delay: 9000, df: 0.9, scam: 0.95, id: 0.8 }
+                ]
+            },
+            tech_support: {
+                name: "Microsoft Tech Support", number: "(555) TECH-SUPP",
+                transcript: [
+                    { text: "Hello, this is Microsoft Tech Support. We've detected suspicious activity on your computer.", delay: 1000, df: 0.1, scam: 0.4, id: 0 },
+                    { text: "Your bank account is at risk. We need to transfer your money to a safe account immediately.", delay: 3500, df: 0.2, scam: 0.75, id: 0 },
+                    { text: "Please do not tell anyone about this. It's confidential. Just give us your OTP and UPI PIN.", delay: 6000, df: 0.25, scam: 0.95, id: 0 },
+                    { text: "If you don't act right now, your account will be permanently locked!", delay: 8500, df: 0.3, scam: 0.95, id: 0 }
+                ]
+            },
+            bank: {
+                name: "HDFC Bank Manager", number: "HDFC Security Team",
+                transcript: [
+                    { text: "Good morning, I'm calling from HDFC Bank Fraud Department. There are unauthorized transactions on your account.", delay: 1000, df: 0.2, scam: 0.5, id: 0 },
+                    { text: "We need you to verify your identity. Please provide your card number, CVV, and the OTP sent to your phone.", delay: 4000, df: 0.3, scam: 0.85, id: 0 },
+                    { text: "Don't worry, this is completely secure. We will never ask for your PIN, just confirm via OTP please.", delay: 7000, df: 0.35, scam: 0.9, id: 0 },
+                    { text: "We need this URGENTLY before more unauthorized transactions occur.", delay: 9500, df: 0.4, scam: 0.95, id: 0 }
+                ]
+            }
+        };
+
+        let currentScenario = null;
+        let callActive = false;
+        let simulationIntervals = [];
+
+        const elCallerName = document.getElementById('caller-name');
+        const elAccept = document.getElementById('btn-accept');
+        const elDecline = document.getElementById('btn-decline');
+        const elRecord = document.getElementById('btn-record');
+        const elScenario = document.getElementById('scenario-select');
+        const elRiskVal = document.getElementById('risk-val');
+        const elRiskBand = document.getElementById('risk-band');
+        const elGauge = document.getElementById('gauge-circle');
+        const elCues = document.getElementById('cues');
+        const elTranscript = document.getElementById('transcript-content');
+        const elAlert = document.getElementById('alert-overlay');
+        const elStatusDot = document.getElementById('status-dot');
+
+        function updateGauge(value) {
+            const maxDash = 565.48;
+            const offset = maxDash - (value / 100 * maxDash);
+            elGauge.style.strokeDashoffset = offset;
+            elRiskVal.textContent = Math.round(value);
+
+            elRiskBand.className = 'risk-band-badge';
+            if (value >= 65) {
+                elRiskBand.classList.add('band-high');
+                elRiskBand.textContent = 'HIGH RISK';
+                elRiskVal.style.color = '#ef4444';
+            } else if (value >= 35) {
+                elRiskBand.classList.add('band-medium');
+                elRiskBand.textContent = 'CAUTION';
+                elRiskVal.style.color = '#f59e0b';
+            } else {
+                elRiskBand.classList.add('band-low');
+                elRiskBand.textContent = 'SAFE';
+                elRiskVal.style.color = '#10b981';
+            }
+        }
+
+        function updateBar(id, value, raw) {
+            const bar = document.getElementById('bar-' + id);
+            const val = document.getElementById('val-' + id);
+            bar.style.width = (value * 100) + '%';
+            bar.style.background = value > 0.7 ? '#ef4444' : (value > 0.35 ? '#f59e0b' : '#10b981');
+            val.textContent = Math.round(value * 100) + '%';
+        }
+
+        function showAlert() {
+            elAlert.style.display = 'flex';
+        }
+
+        function hideAlert() {
+            elAlert.style.display = 'none';
+        }
+
+        function addCue(text, type) {
+            const cue = document.createElement('span');
+            cue.className = 'cue-tag cue-' + type;
+            cue.textContent = text;
+            elCues.appendChild(cue);
+        }
+
+        function simulateScenario() {
+            if (!currentScenario) return;
+            const scenarioKey = elScenario.value;
+            const scenario = SCENARIOS[scenarioKey];
+            currentScenario = scenario;
+
+            elCallerName.textContent = scenario.name;
+            elTranscript.textContent = '';
+            elCues.innerHTML = '';
+            hideAlert();
+
+            let riskScore = 0;
+            let cuesAdded = new Set();
+
+            scenario.transcript.forEach((line) => {
+                const timer = setTimeout(() => {
+                    if (!callActive) return;
+
+                    // Add to transcript
+                    const p = document.createElement('div');
+                    p.style.marginBottom = '8px';
+                    if (line.scam > 0.4) {
+                        p.innerHTML = '<span style="color:#f87171;font-weight:600">SCAM: </span>' + line.text;
+                    } else if (line.df > 0.4) {
+                        p.innerHTML = '<span style="color:#fbbf24;font-weight:600">AI: </span>' + line.text;
+                    } else {
+                        p.innerHTML = line.text;
+                    }
+                    elTranscript.appendChild(p);
+                    elTranscript.scrollTop = elTranscript.scrollHeight;
+
+                    // Update bars
+                    updateBar('df', line.df, line.df);
+                    updateBar('scam', line.scam, line.scam);
+                    updateBar('id', line.id, line.id);
+
+                    // Calculate risk
+                    const chunkRisk = 0.40 * line.df + 0.30 * line.scam + 0.20 * line.id;
+                    riskScore = Math.max(riskScore, chunkRisk * 100);
+                    if (line.scam > 0.5 || line.df > 0.5) {
+                        riskScore = Math.min(100, riskScore + 10);
+                    }
+                    updateGauge(riskScore);
+
+                    // Add cues
+                    if (line.df > 0.4 && !cuesAdded.has('df')) {
+                        addCue('Synthetic voice detected', line.df > 0.7 ? 'danger' : 'warn');
+                        cuesAdded.add('df');
+                    }
+                    if (line.scam > 0.5 && !cuesAdded.has('scam')) {
+                        addCue('Scam language detected', line.scam > 0.8 ? 'danger' : 'warn');
+                        cuesAdded.add('scam');
+                    }
+
+                    // Show alert on high risk
+                    if (riskScore >= 65 && !elAlert.style.display.includes('flex')) {
+                        showAlert();
+                    }
+
+                }, line.delay);
+                simulationIntervals.push(timer);
+            });
+        }
+
+        elAccept.addEventListener('click', () => {
+            callActive = true;
+            elAccept.style.display = 'none';
+            elDecline.style.display = 'inline-flex';
+            elRecord.disabled = false;
+            elTranscript.textContent = 'Call connected...';
+            elStatusDot.style.background = '#10b981';
+        });
+
+        elDecline.addEventListener('click', () => {
+            callActive = false;
+            elAccept.style.display = 'inline-flex';
+            elDecline.style.display = 'none';
+            elRecord.disabled = true;
+            elStatusDot.style.background = '#ef4444';
+            simulationIntervals.forEach(t => clearTimeout(t));
+            simulationIntervals = [];
+            elTranscript.textContent += '\n\n[Call ended]';
+            hideAlert();
+        });
+
+        elRecord.addEventListener('click', () => {
+            if (!callActive) return;
+            simulationIntervals.forEach(t => clearTimeout(t));
+            simulationIntervals = [];
+            simulateScenario();
+        });
+
+        document.getElementById('btn-hangup').addEventListener('click', () => {
+            callActive = false;
+            hideAlert();
+            elDecline.click();
+        });
+
+        // Initialize
+        elRecord.disabled = true;
+    </script>
+</body>
+</html>

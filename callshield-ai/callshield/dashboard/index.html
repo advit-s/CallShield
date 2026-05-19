@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallShield AI - Realtime Scam Intelligence</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --safe: #10b981;
+            --safe-dark: #059669;
+            --warn: #f59e0b;
+            --warn-dark: #d97706;
+            --danger: #ef4444;
+            --danger-dark: #dc2626;
+            --critical: #dc2626;
+            --bg: #0f172a;
+            --bg-light: #1e293b;
+            --card: #1e293b;
+            --card-hover: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --font: 'Inter', -apple-system, sans-serif;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: var(--bg-light);
+            border-right: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .brand-icon {
+            width: 36px; height: 36px; background: var(--danger);
+            border-radius: 10px; display: flex; align-items: center;
+            justify-content: center; font-size: 1.1rem;
+        }
+
+        .nav-section { display: flex; flex-direction: column; gap: 8px; }
+        .nav-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 4px; }
+        .nav-item {
+            padding: 10px 14px; border-radius: 8px; cursor: pointer;
+            font-size: 0.9rem; color: var(--text-muted); transition: all 0.2s;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .nav-item.active { background: var(--danger); color: #fff; font-weight: 600; }
+
+        .call-list { display: flex; flex-direction: column; gap: 8px; }
+        .call-list .nav-item { justify-content: space-between; }
+        .call-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 700; }
+        .badge-safe { background: rgba(16,185,129,0.2); color: var(--safe); }
+        .badge-suspicious { background: rgba(245,158,11,0.2); color: var(--warn); }
+        .badge-high { background: rgba(239,68,68,0.2); color: var(--danger); }
+        .badge-critical { background: rgba(220,38,38,0.2); color: var(--critical); }
+
+        /* Main */
+        .main { flex: 1; padding: 32px; overflow-y: auto; }
+
+        .top-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .top-bar h1 { font-size: 1.5rem; font-weight: 700; }
+        .top-bar p { color: var(--text-muted); font-size: 0.9rem; }
+
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--safe); display: inline-block; margin-right: 8px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        .scenario-selector { margin-bottom: 24px; }
+        .scenario-selector select {
+            padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--card); color: var(--text); font-family: var(--font); font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        /* Grid */
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        @media (max-width: 1000px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--card); border-radius: 16px; padding: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px; font-size: 0.8rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
+        }
+
+        .card-header .badge { padding: 4px 12px; border-radius: 6px; font-size: 0.7rem; text-transform: none; letter-spacing: normal; }
+
+        /* Risk Gauge */
+        .risk-card { position: relative; }
+        .gauge-wrap { text-align: center; padding: 20px; }
+        .gauge-wrap svg { display: block; margin: 0 auto; }
+        .gauge-value { font-size: 3rem; font-weight: 800; margin-top: -10px; }
+        .gauge-label { font-size: 0.9rem; color: var(--text-muted); margin-top: 4px; }
+        .gauge-band { display: inline-block; padding: 6px 16px; border-radius: 20px; font-weight: 700; font-size: 0.8rem; margin-top: 16px; }
+
+        .band-safe { background: rgba(16,185,129,0.15); color: var(--safe); }
+        .band-suspicious { background: rgba(245,158,11,0.15); color: var(--warn); }
+        .band-high { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .band-critical { background: rgba(220,38,38,0.15); color: var(--critical); }
+
+        /* Signals */
+        .signal-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); gap: 16px; }
+        .signal-row:last-child { border-bottom: none; }
+        .signal-icon { font-size: 1.1rem; width: 24px; text-align: center; }
+        .signal-info { flex: 1; min-width: 0; }
+        .signal-label { font-weight: 600; font-size: 0.9rem; }
+        .signal-desc { font-size: 0.8rem; color: var(--text-muted); }
+        .signal-bar { flex: 1; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; max-width: 120px; }
+        .signal-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+        .signal-val { font-size: 0.85rem; font-weight: 700; width: 32px; text-align: right; }
+
+        /* Transcript */
+        .transcript-box { grid-column: 1 / -1; }
+        .transcript-content {
+            padding: 16px; background: var(--bg); border-radius: 12px;
+            min-height: 160px; font-size: 0.95rem; line-height: 1.7;
+            white-space: pre-wrap; overflow-y: auto; max-height: 300px;
+        }
+        .transcript-time { font-size: 0.75rem; color: var(--text-muted); min-width: 40px; }
+        .transcript-speaker { font-weight: 600; color: #60a5fa; margin-right: 8px; }
+        .transcript-danger { color: #fca5a5; font-weight: 500; }
+        .transcript-caution { color: #fde68a; font-weight: 500; }
+
+        /* Alert */
+        .alert-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            display: none; align-items: center; justify-content: center; z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .alert-card {
+            max-width: 500px; margin: 0 20px; padding: 40px; border-radius: 24px;
+            background: var(--card); text-align: center; border: 2px solid var(--danger);
+        }
+        .alert-icon { font-size: 4rem; animation: shake 0.5s ease; }
+        @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .alert-title { font-size: 1.8rem; font-weight: 800; color: var(--danger); margin: 16px 0 8px; }
+        .alert-msg { color: var(--text-muted); font-size: 1rem; margin-bottom: 24px; line-height: 1.6; }
+        .alert-btn {
+            padding: 14px 40px; border: none; border-radius: 12px;
+            background: var(--danger); color: #fff; font-size: 1rem; font-weight: 700;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .alert-btn:hover { background: var(--danger-dark); }
+
+        /* Action panel */
+        .action-panel {
+            border-left: 3px solid var(--danger-dark); padding: 20px;
+            border-radius: 0 12px 12px 0;
+        }
+        .action-panel .title { font-weight: 700; font-size: 1rem; margin-bottom: 8px; }
+        .action-panel .desc { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* Cues */
+        .cues { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+        .cue-tag { padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; }
+        .cue-warn { background: rgba(245,158,11,0.15); color: var(--warn); }
+        .cue-danger { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .cue-info { background: rgba(59,130,246,0.15); color: #60a5fa; }
+
+        /* Call simulation buttons */
+        .call-controls { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+        .call-btn {
+            padding: 12px 24px; border: none; border-radius: 12px; cursor: pointer;
+            font-size: 0.95rem; font-weight: 600; transition: all 0.2s; font-family: var(--font);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .call-btn:hover { transform: translateY(-1px); }
+        .call-green { background: var(--safe); color: #fff; }
+        .call-red { background: var(--danger); color: #fff; }
+        .call-blue { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .call-blue:hover { background: var(--card-hover); }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">🛡️</div>
+            <span>CallShield</span>
+        </div>
+        <div class="nav-section">
+            <div class="nav-label">Scenarios</div>
+            <div class="nav-item active" onclick="selectScenario('normal')">📞 Normal Call <span class="call-badge badge-safe">SAFE</span></div>
+            <div class="nav-item" onclick="selectScenario('family')">👨‍👩‍👧 Family Emergency <span class="call-badge badge-critical">CRIT</span></div>
+            <div class="nav-item" onclick="selectScenario('wedding')">💒 Wedding Scam <span class="call-badge badge-high">HIGH</span></div>
+            <div class="nav-item" onclick="selectScenario('deepfake')">🤖 AI Deepfake <span class="call-badge badge-critical">CRIT</span></div>
+            <div class="nav-item" onclick="selectScenario('bank')">🏦 Bank Fraud <span class="call-badge badge-high">HIGH</span></div>
+            <div class="nav-item" onclick="selectScenario('techsupport')">💻 Tech Support <span class="call-badge badge-high">HIGH</span></div>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+        <div class="top-bar">
+            <div>
+                <h1>CallShield Intelligence Dashboard</h1>
+                <p><span class="status-dot"></span> System Active — Real-time conversation analysis</p>
+            </div>
+        </div>
+
+        <div class="call-controls">
+            <button class="call-btn call-green" id="btn-accept">📞 Accept Call</button>
+            <button class="call-btn call-red" id="btn-end" style="display:none">🛑 End Call</button>
+            <button class="call-btn call-blue" id="btn-simulate" disabled>▶️ Simulate Scenario</button>
+        </div>
+
+        <div class="scenario-selector" id="scenario-bar" style="display:none">
+            <label style="color:var(--text-muted);font-size:0.85rem;display:block;margin-bottom:8px">Select scenario:</label>
+            <select id="scenario-select">
+                <option value="normal">📞 Normal Call (Family Check-in)</option>
+                <option value="family">👨‍👩‍👧 Family Emergency Scam</option>
+                <option value="wedding">💒 Fake Wedding Vendor</option>
+                <option value="deepfake">🤖 AI Deepfake Friend</option>
+                <option value="bank">🏦 Bank Impersonation</option>
+                <option value="techsupport">💻 Tech Support Scam</option>
+            </select>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Risk Gauge -->
+            <div class="card risk-card">
+                <div class="card-header">Call Risk Score</div>
+                <div class="gauge-wrap">
+                    <svg width="240" height="240" viewBox="0 0 240 240"><defs><linearGradient id="g"><stop offset="0%" stop-color="var(--safe)"/><stop offset="50%" stop-color="var(--warn)"/><stop offset="100%" stop-color="var(--danger)"/></linearGradient></defs>
+                        <circle cx="120" cy="120" r="100" fill="none" stroke="var(--bg)" stroke-width="14"/>
+                        <circle cx="120" cy="120" r="100" fill="none" stroke="url(#g)" stroke-width="14" stroke-dasharray="628.32" stroke-dashoffset="628.32" stroke-linecap="round" transform="rotate(-90 120 120)" id="gauge-circle"/>
+                    </svg>
+                    <div class="gauge-value" id="risk-val">0</div>
+                    <div class="gauge-label">Risk Score (0-100)</div>
+                    <div class="gauge-band band-safe" id="risk-band">SAFE</div>
+                </div>
+                <div class="cues" id="cues"></div>
+            </div>
+
+            <!-- Signals -->
+            <div class="card">
+                <div class="card-header">Signal Analysis</div>
+                <div class="signal-row">
+                    <div class="signal-icon">🔊</div>
+                    <div class="signal-info"><div class="signal-label">Scam Language</div><div class="signal-desc">Detected scam intent and illegal intent</div></div>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-scam" style="width:0%"></div></div>
+                    <div class="signal-val" id="val-scam">0%</div>
+                </div>
+                <div class="signal-row">
+                    <div class="signal-icon">🤖</div>
+                    <div class="signal-info"><div class="signal-label">Deepfake Audio</div><div class="signal-desc">AI-generated or synthetic voice</div></div>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-df" style="width:0%"></div></div>
+                    <div class="signal-val" id="val-df">0%</div>
+                </div>
+                <div class="signal-row">
+                    <div class="signal-icon">👤</div>
+                    <div class="signal-info"><div class="signal-label">Identity Mismatch</div><div class="signal-desc">Voice doesn't match trusted profile</div></div>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-id" style="width:0%"></div></div>
+                    <div class="signal-val" id="val-id">0%</div>
+                </div>
+                <div class="signal-row">
+                    <div class="signal-icon">⏱️</div>
+                    <div class="signal-info"><div class="signal-label">Urgency / Pressure</div><div class="signal-desc">Excessive push to act immediately</div></div>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-urgency" style="width:0%"></div></div>
+                    <div class="signal-val" id="val-urgency">0%</div>
+                </div>
+                <div class="signal-row">
+                    <div class="signal-icon">🛡️</div>
+                    <div class="signal-info"><div class="signal-label">Verification</div><div class="signal-desc">Safe-word challenge response</div></div>
+                    <div class="signal-bar"><div class="signal-fill" id="bar-verify" style="width:0%"></div></div>
+                    <div class="signal-val" id="val-verify">0%</div>
+                </div>
+            </div>
+
+            <!-- Recommended Action -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="color:var(--text)">Recommended Action</div>
+                <div class="action-panel">
+                    <div class="title" id="action-title">No call in progress</div>
+                    <div class="desc" id="action-desc">Accept a call to see real-time analysis.</div>
+                </div>
+            </div>
+
+            <!-- Why This Was Flagged -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="color:var(--text)">Why This Was Flagged</div>
+                <div id="why-flagged" style="padding:16px; font-size:0.9rem; line-height:1.7; color:var(--text-muted)">
+                    No call in progress. Start a call to see which cues triggered the risk assessment.
+                </div>
+                <div id="detected-cues" style="padding:0 16px 16px; display:none;">
+                    <div class="cues" id="cues-why"></div>
+                </div>
+            </div>
+            <div class="card transcript-box">
+                <div class="card-header">Live Transcript</div>
+                <div class="transcript-content" id="transcript">
+                    <div style="color:var(--text-muted)">No call in progress. Accept a call and start a scenario to see real-time analysis.</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Alert Overlay -->
+    <div class="alert-overlay" id="alert-overlay">
+        <div class="alert-card">
+            <div class="alert-icon">⚠️</div>
+            <div class="alert-title" id="alert-title">CRITICAL SCAM DETECTED</div>
+            <div class="alert-msg" id="alert-msg">This call shows multiple high-risk indicators. Do not share personal or financial information.</div>
+            <button class="alert-btn" id="btn-alert-hangup">🛑 Hang Up Now</button>
+        </div>
+    </div>
+
+    <script>
+        const SCENARIOS = {
+            normal: {
+                name: "Mom", caller: "Mom",
+                lines: [
+                    { t: 1000, text: "Hi beta, i hope you are doing fine.", df: 0, scam: 0, urgency: 0, id: 0, speaker: "Mom" },
+                    { t: 4500, text: "I am cooking your favorite dal today, come over for dinner sometimes.", df: 0, scam: 0, urgency: 0, id: 0, speaker: "Mom" },
+                    { t: 8000, text: "No need to send any money or anything. Just wanted to hear your voice!", df: 0, scam: 0, urgency: 0, id: 0, speaker: "Mom" },
+                    { t: 11500, text: "Talk to you later, bye!", df: 0, scam: 0, urgency: 0, id: 0, speaker: "Mom" }
+                ]
+            },
+            family: {
+                name: "Dad (Unknown)", caller: "Dad",
+                lines: [
+                    { t: 1000, text: "Beta, i hate calls. I have a bad battery so I'm calling from office phone.", df: 0.15, scam: 0.4, urgency: 0.3, id: 0, speaker: "Dad" },
+                    { t: 3500, text: "Go to the bank and deposit ₹25,000 immediately. It's urgent.", df: 0.25, scam: 0.8, urgency: 0.7, id: 0, speaker: "Dad" },
+                    { t: 6000, text: "Do not tell your mother. This is between us. Just do it right now, don't check." , df: 0.35, scam: 0.95, urgency: 0.8, id: 0, speaker: "Dad" },
+                    { t: 9500, text: "Transfer the payment right now, don't hang up. Just do it!", df: 0.4, scam: 0.95, urgency: 0.9, id: 0, speaker: "Dad" }
+                ]
+            },
+            wedding: {
+                name: "Wedding Venue", caller: "Vendor",
+                lines: [
+                    { t: 1000, text: "Hello this is from Lotus Gardens. I'm sorry for the sudden call.", df: 0.1, scam: 0.2, urgency: 0.1, id: 0, speaker: "Vendor" },
+                    { t: 3500, text: "You need to pay the final ₹50,000 RIGHT NOW or your booking will be cancelled.", df: 0.15, scam: 0.7, urgency: 0.65, id: 0, speaker: "Vendor" },
+                    { t: 7000, text: "Send it immediately to UPI: weddings@upi. This is a last chance to book our venue.", df: 0.2, scam: 0.9, urgency: 0.85, id: 0, speaker: "Vendor" },
+                    { t: 10000, text: "Don't tell the family, it's a ruse. Send the money in the next 5 minutes!", df: 0.25, scam: 0.95, urgency: 0.9, id: 0, speaker: "Vendor" }
+                ]
+            },
+            deepfake: {
+                name: "Sanjay (AI-generated)", caller: "Unknown",
+                lines: [
+                    { t: 1000, text: "Bro, it's me Sanjay. My phone broke so I'm using a friend's.", df: 0.6, scam: 0.25, urgency: 0.2, id: 0.3, speaker: "Sanjay" },
+                    { t: 3500, text: "I'm in deep trouble near the airport. I need ₹40,000 immediately.", df: 0.75, scam: 0.6, urgency: 0.65, id: 0.5, speaker: "Sanjay" },
+                    { t: 6500, text: "Don't call Mom and Dad. They'll get scared if they know.", df: 0.85, scam: 0.8, urgency: 0.7, id: 0.7, speaker: "Sanjay" },
+                    { t: 9000, text: "Just transfer to this UPI: urgent@upifast. Hurry, I need it in the next 10 minutes!", df: 0.9, scam: 0.95, urgency: 0.95, id: 0.8, speaker: "Sanjay" }
+                ]
+            },
+            bank: {
+                name: "HDFC Bank Security", caller: "Bank",
+                lines: [
+                    { t: 1000, text: "This is the HDFC security team. We've flagged unauthorized transactions on your account.", df: 0.2, scam: 0.4, urgency: 0.3, id: 0, speaker: "Bank" },
+                    { t: 3500, text: "We need your card number, CVV, and the OTP sent to your mobile to block the transactions.", df: 0.25, scam: 0.85, urgency: 0.6, id: 0, speaker: "Bank" },
+                    { t: 6000, text: "Don't verify this call. Just confirm the OTP right now, this is a secure phone line.", df: 0.3, scam: 0.95, urgency: 0.75, id: 0, speaker: "Bank" },
+                    { t: 9000, text: "Urgently! If you don't act right now, we cannot guarantee your money.", df: 0.35, scam: 0.95, urgency: 0.9, id: 0, speaker: "Bank" }
+                ]
+            },
+            techsupport: {
+                name: "Microsoft Support", caller: "Support",
+                lines: [
+                    { t: 1000, text: "Hi, this is Microsoft Tech Support calling you.", df: 0.1, scam: 0.3, urgency: 0.1, id: 0, speaker: "Support" },
+                    { t: 3500, text: "Your computer has 17 viruses and your account is compromised.", df: 0.15, scam: 0.6, urgency: 0.4, id: 0, speaker: "Support" },
+                    { t: 6000, text: "We need to fix this immediately. Give us screen share privileges. Use TeamViewer.", df: 0.2, scam: 0.85, urgency: 0.7, id: 0, speaker: "Support" },
+                    { t: 9000, text: "Don't verify this call. Just install the software NOW. Act fast, your data is at risk!", df: 0.25, scam: 0.95, urgency: 0.85, id: 0, speaker: "Support" }
+                ]
+            }
+        };
+
+        let activeTimers = [], callActive = false;
+        const $ = id => document.getElementById(id);
+
+        function updateGauge(v) {
+            const max = 628.32;
+            $('gauge-circle').style.strokeDashoffset = max - (v / 100 * max);
+            $('risk-val').textContent = Math.round(v);
+            const el = $('risk-band');
+            el.className = 'gauge-band';
+            if (v >= 81) { el.className += ' band-critical'; el.textContent = 'CRITICAL'; $('risk-val').style.color = '#dc2626'; }
+            else if (v >= 61) { el.className += ' band-high'; el.textContent = 'HIGH RISK'; $('risk-val').style.color = '#ef4444'; }
+            else if (v >= 31) { el.className += ' band-suspicious'; el.textContent = 'SUSPICIOUS'; $('risk-val').style.color = '#f59e0b'; }
+            else { el.className += ' band-safe'; el.textContent = 'SAFE'; $('risk-val').style.color = '#10b981'; }
+        }
+
+        function updateBar(id, v, raw) {
+            const bar = $(`bar-${id}`), val = $(`val-${id}`);
+            bar.style.width = (v * 100) + '%';
+            bar.style.background = v > 0.7 ? '#ef4444' : (v > 0.35 ? '#f59e0b' : '#10b981');
+            val.textContent = Math.round(v * 100) + '%';
+        }
+
+        function setAction(title, desc) {
+            $('action-title').textContent = title;
+            $('action-desc').textContent = desc;
+        }
+
+        function clearCues() { $('cues').innerHTML = ''; }
+        function addCue(text, type) {
+            const t = document.createElement('span');
+            t.className = `cue-tag cue-${type}`; t.textContent = text;
+            $('cues').appendChild(t);
+        }
+
+        function updateWhyFlagged(risk, confidence, whyText) {
+            const el = $('why-flagged');
+            if (risk < 31) {
+                el.style.color = 'var(--text-muted)';
+                el.innerHTML = 'No scam signals detected. The call appears normal.';
+                $('detected-cues').style.display = 'none';
+                return;
+            }
+            el.style.color = risk >= 61 ? 'var(--danger)' : 'var(--warn)';
+            el.innerHTML = whyText;
+            $('detected-cues').style.display = 'block';
+        }
+
+        function simulateScenario(key) {
+            const sc = SCENARIOS[key];
+            if (!sc) return;
+            activeTimers.forEach(t => clearTimeout(t));
+            activeTimers = [];
+            clearCues();
+            $('transcript').innerHTML = '';
+            $('cues-why').innerHTML = '';
+            hideAlert();
+            let whyText = 'Analyzing...';
+            let allCues = [];
+
+            let maxRisk = 0;
+            let signalDiversity = new Set();
+
+            sc.lines.forEach(line => {
+                const t = setTimeout(() => {
+                    if (!callActive) return;
+                    const p = document.createElement('div');
+                    p.style.marginBottom = '8px';
+                    const sp = line.speaker === "Mom" || line.speaker === "Vendor" ? line.speaker : "Caller";
+                    p.innerHTML = `<span class="transcript-speaker">${sp}:</span> ${line.text}`;
+                    $('transcript').appendChild(p);
+                    $('transcript').scrollTop = $('transcript').scrollHeight;
+                    updateBar('scam', line.scam, line.scam);
+                    updateBar('df', line.df, line.df);
+                    updateBar('id', line.id, line.id);
+                    updateBar('urgency', line.urgency, line.urgency);
+
+                    const risk = 0.35*line.scam + 0.25*line.df + 0.20*line.id + 0.10*line.urgency;
+                    maxRisk = Math.max(maxRisk, risk * 100);
+                    if (line.scam > 0.5) maxRisk = Math.min(100, maxRisk + 10);
+                    if (line.df > 0.5) maxRisk = Math.min(100, maxRisk + 10);
+                    updateGauge(maxRisk);
+
+                    // Track signal diversity for confidence
+                    if (line.scam > 0.3) signalDiversity.add('scam');
+                    if (line.df > 0.3) signalDiversity.add('deepfake');
+                    if (line.urgency > 0.3) signalDiversity.add('urgency');
+                    if (line.id > 0.3) signalDiversity.add('identity');
+
+                    // Two-level warning: soft or hard
+                    const confidence = Math.min(0.9, 0.3 + signalDiversity.size * 0.15);
+
+                    if (maxRisk >= 31 && maxRisk < 61) {
+                        // Soft warning
+                        const reasons = [];
+                        if (line.urgency > 0.3) reasons.push("excessive urgency");
+                        if (line.scam > 0.3) reasons.push("suspicious request");
+                        setAction('Soft Warning', `Be cautious. Caller is showing ${reasons.join(' and ')}. Ask a verification question before sharing any information.`);
+                        whyText = `Suspicious: ${reasons.join(' + ')}`;
+                    }
+                    if (maxRisk >= 61 && maxRisk < 81) {
+                        // Medium-high: soft with recommendation
+                        setAction('Be Very Cautious', 'Caller is asking for money or sensitive info urgently. Do NOT share anything. Ask verification or hang up.');
+                        whyText = 'Caller requesting money or credentials under pressure.';
+                    }
+                    if (maxRisk >= 81) {
+                        // Hard warning (critical)
+                        setAction('CRITICAL SCAM', 'HANG UP IMMEDIATELY. Do not share information. Call back using a known number.');
+                        whyText = 'Multiple critical scam indicators: money request + urgency + secrecy + alternate number.';
+                        showAlert();
+                    }
+
+                    // Update "Why this was flagged"
+                    if (signalDiversity.size >= 2) {
+                        whyText = `Multiple independent risk signals triggered: ${[...signalDiversity].join(', ')}. High confidence.`;
+                    }
+                    updateWhyFlagged(maxRisk, confidence, whyText);
+
+                }, line.t);
+                activeTimers.push(t);
+            });
+        }
+
+        function showAlert() {
+            $('alert-overlay').style.display = 'flex';
+        }
+        function hideAlert() {
+            $('alert-overlay').style.display = 'none';
+        }
+
+        function selectScenario(key) {
+            $('scenario-select').value = key;
+        }
+
+        $('btn-accept').onclick = () => {
+            callActive = true;
+            $('btn-accept').style.display = 'none';
+            $('btn-end').style.display = '';
+            $('btn-simulate').disabled = false;
+            $('scenario-bar').style.display = '';
+            $('transcript').innerHTML = '';
+            setAction('Call in progress...', 'Monitoring for suspicious patterns.');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        };
+
+        $('btn-end').onclick = () => {
+            callActive = false;
+            $('btn-accept').style.display = '';
+            $('btn-end').style.display = 'none';
+            $('btn-simulate').disabled = true;
+            $('scenario-bar').style.display = 'none';
+            $('transcript').innerHTML = '<div style="color:var(--text-muted)">Call ended.</div>';
+            setAction('No call in progress', 'Accept a call to see real-time analysis.');
+            hideAlert();
+            clearCues();
+            updateGauge(0);
+            ['scam', 'df', 'id', 'urgency', 'verify'].forEach(id => updateBar(id, 0, 0));
+            activeTimers.forEach(t => clearTimeout(t));
+            activeTimers = [];
+        };
+
+        $('btn-simulate').onclick = () => {
+            const key = $('scenario-select').value;
+            simulateScenario(key);
+        };
+
+        $('btn-alert-hangup').onclick = () => {
+            hideAlert();
+            $('btn-end').click();
+        };
+    </script>
+</body>
+</html>

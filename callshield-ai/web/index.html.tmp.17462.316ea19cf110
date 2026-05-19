@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallShield AI - Real-Time Deepfake & Scam Detection</title>
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --surface: #111827;
+            --surface-hover: #1f2937;
+            --text: #e5e7eb;
+            --text-muted: #9ca3af;
+            --accent: #00d8a0;
+            --accent-glow: rgba(0, 216, 160, 0.3);
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid rgba(0, 216, 160, 0.2);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .logo svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 40px 0 32px;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--accent), #0ea5e9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Risk meter */
+        .risk-container {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 24px 0;
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .risk-container.high-risk {
+            border-color: var(--danger);
+            box-shadow: 0 0 20px var(--danger-glow);
+        }
+
+        .risk-label {
+            font-size: 1rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        .risk-meter {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 24px;
+            position: relative;
+        }
+
+        .risk-ring {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .risk-ring-bg {
+            fill: none;
+            stroke: rgba(255,255,255,0.1);
+            stroke-width: 10;
+        }
+
+        .risk-ring-progress {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 10;
+            stroke-linecap: round;
+            stroke-dasharray: 628; /* 2 * PI * 100 */
+            transition: stroke-dashoffset 0.5s ease, stroke 0.3s ease;
+            filter: drop-shadow(0 0 8px rgba(0, 216, 160, 0.5));
+        }
+
+        .risk-ring-progress.warning {
+            stroke: var(--warning);
+            filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.5));
+        }
+
+        .risk-ring-progress.danger {
+            stroke: var(--danger);
+            filter: drop-shadow(0 0 12px var(--danger-glow));
+        }
+
+        .risk-score-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .risk-score-value {
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: var(--text);
+        }
+
+        .risk-score-label {
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-muted);
+        }
+
+        .risk-band {
+            display: inline-block;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .risk-band.low { background: rgba(0, 216, 160, 0.2); color: var(--accent); }
+        .risk-band.medium { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .risk-band.high { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        /* Dashboard grid */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-top: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .panel h2 {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Score bars */
+        .score-item {
+            margin-bottom: 16px;
+        }
+
+        .score-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+
+        .score-name { color: var(--text); }
+        .score-value { color: var(--text-muted); font-weight: 500; }
+
+        .score-bar-bg {
+            height: 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease, background 0.3s ease;
+        }
+
+        .score-bar-fill.green { background: var(--accent); }
+        .score-bar-fill.yellow { background: var(--warning); }
+        .score-bar-fill.red { background: var(--danger); }
+
+        /* Transcript */
+        .transcript {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 200px;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            overflow-y: auto;
+        }
+
+        .transcript .speaker {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* Cues */
+        .cues-list {
+            list-style: none;
+        }
+
+        .cues-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .cues-list li::before {
+            content: '!';
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--warning);
+            color: var(--bg);
+            font-size: 0.7rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        /* Recommendations */
+        .recommendations-list {
+            list-style: none;
+        }
+
+        .recommendations-list li {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: rgba(0, 216, 160, 0.05);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            font-size: 0.9rem;
+        }
+
+        .recommendations-list li.critical {
+            background: rgba(239, 68, 68, 0.1);
+            border-left-color: var(--danger);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin: 24px 0;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .btn-primary:hover { background: #00f0b0; }
+
+        .btn-red {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-red:hover { background: #f56565; }
+
+        .btn-secondary {
+            background: var(--surface-hover);
+            color: var(--text);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+
+        /* Demo scenarios */
+        .scenarios {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .scenario-card {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .scenario-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .scenario-card h3 {
+            font-size: 1rem;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .scenario-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .scenario-card .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-top: 8px;
+            margin-right: 4px;
+        }
+
+        .tag.scam { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .tag.safe { background: rgba(0, 216, 160, 0.2); color: var(--accent); }
+        .tag.mixed { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+        /* Live indicator */
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(0, 216, 160, 0.1);
+            border: 1px solid rgba(0, 216, 160, 0.3);
+            font-size: 0.85rem;
+            color: var(--accent);
+            margin-bottom: 16px;
+        }
+
+        .live-indicator .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1.5s infinite;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        /* Animations */
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            CallShield
+        </div>
+        <div class="status">
+            <span class="status-dot"></span>
+            <span>System Active</span>
+        </div>
+    </div>
+
+    <main class="main">
+        <div class="hero">
+            <h1>Protect Calls from Scams</h1>
+            <p>Real-time AI-powered detection of deepfake voices and scam language in phone conversations</p>
+        </div>
+
+        <div class="risk-container" id="riskContainer">
+            <div class="risk-label">Call Risk Assessment</div>
+            <div class="risk-meter">
+                <svg class="risk-ring" viewBox="0 0 220 220">
+                    <circle class="risk-ring-bg" cx="110" cy="110" r="90"/>
+                    <circle class="risk-ring-progress" id="riskRing" cx="110" cy="110" r="90"/>
+                </svg>
+                <div class="risk-score-display">
+                    <div class="risk-score-value" id="riskScore">0</div>
+                    <div class="risk-score-label" id="riskBand">SAFE</div>
+                </div>
+            </div>
+            <div style="text-align: center;">
+                <span class="risk-band low" id="riskBandEl">Low Risk</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="startMonitoring()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15.536 8.464a5 5 0 0 1 0 7.072m2.828-9.9a9 9 0 0 1 0 12.728m-9.9-2.829a5 5 0 0 1 0-7.072M6.464 16.536a9 9 0 0 1 0-12.728"/>
+                    <path d="M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                </svg>
+                Start Monitoring
+            </button>
+            <button class="btn btn-red" onclick="stopMonitoring()">
+                Stop
+            </button>
+            <button class="btn btn-secondary" onclick="loadDemo('normal')">
+                Demo: Normal Call
+            </button>
+            <button class="btn btn-secondary" onclick="loadDemo('scam')">
+                Demo: Scam Attempt
+            </button>
+            <button class="btn btn-secondary" onclick="loadDemo('deepfake')">
+                Demo: AI Deepfake
+            </button>
+        </div>
+
+        <div id="liveIndicator" class="live-indicator" style="display: none;">
+            <span class="dot"></span>
+            Live monitoring active
+        </div>
+
+        <div class="dashboard" id="dashboard">
+            <div class="panel">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 19v-6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6"/>
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    </svg>
+                    Signal Breakdown
+                </h2>
+                <div class="score-item">
+                    <div class="score-header">
+                        <span class="score-name">Deepfake Detection</span>
+                        <span class="score-value" id="scoreDeepfake">0%</span>
+                    </div>
+                    <div class="score-bar-bg">
+                        <div class="score-bar-fill green" id="barDeepfake" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="score-item">
+                    <div class="score-header">
+                        <span class="score-name">Scam Language</span>
+                        <span class="score-value" id="scoreScam">0%</span>
+                    </div>
+                    <div class="score-bar-bg">
+                        <div class="score-bar-fill green" id="barScam" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="score-item">
+                    <div class="score-header">
+                        <span class="score-name">Identity Mismatch</span>
+                        <span class="score-value" id="scoreIdentity">0%</span>
+                    </div>
+                    <div class="score-bar-bg">
+                        <div class="score-bar-fill green" id="barIdentity" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L19.5 11.414l-2.828 2.828L13.086 10H10a2 2 0 0 0-2 2v2"/>
+                    </svg>
+                    Live Transcript
+                </h2>
+                <div class="transcript" id="transcript">
+                    Waiting for call audio...<br>
+                    Click "Start Monitoring" or select a demo scenario.
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>
+                    </svg>
+                    Detected Cues
+                </h2>
+                <ul class="cues-list" id="cuesList">
+                    <li style="opacity: 0.5">No suspicious cues detected yet</li>
+                </ul>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12.75 15.5V9.75m0-4.5V1.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0Z"/>
+                        <path d="M16.7 4.6A8.579 8.579 0 0 0 12.75 3c-3.648 0-6.64 2.56-8.053 5.971 1.272.665 2.178 1.842 2.746 3.18C8.56 14.277 8.56 17.348 8.56 19.5c0 1.103.897 2 2 2h4.38c1.103 0 2-.897 2-2 0-2.152-2.56-5.223-2.56-8.349 0-1.338.933-2.515 2.206-3.18 1.412-3.411 4.404-5.971 8.052-5.971 1.176 0 2.296.29 3.33.816A8.588 8.588 0 0 0 21.75 4.6"/>
+                    </svg>
+                    Recommendations
+                </h2>
+                <ul class="recommendations-list" id="recommendations">
+                    <li>Click "Start Monitoring" to begin real-time call protection.</li>
+                </ul>
+            </div>
+        </div>
+
+        <section style="margin-top: 48px;">
+            <h2 style="text-align: center; margin-bottom: 24px; color: var(--text-muted); font-size: 1.2rem;">Demo Scenarios</h2>
+            <div class="scenarios" id="scenariosGrid">
+                <!-- Generated by JS -->
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>CallShield AI v1.0 - Real-time deepfake & scam detection.</p>
+        <p style="margin-top: 8px; font-size: 0.8rem; opacity: 0.6;">
+            For educational and protective use only. Always verify caller identity independently.
+        </p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
