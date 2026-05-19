@@ -233,11 +233,11 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
         asr_result = asr.transcribe(temp_path)
         transcript = asr_result.get("text", "")
 
-        # Run analysis on the transcript
-        result = sdk.analyze_transcript(
-            text=transcript,
-            speaker_id=enrolled_speaker_id,
-            audio_deepfake_score=0.0  # Placeholder: deepfake model not yet loaded
+        # Run analysis on the audio and transcript
+        result = sdk.analyze_audio(
+            audio_path=temp_path,
+            transcript=transcript,
+            speaker_id=enrolled_speaker_id
         )
 
         response = RiskResult(
@@ -255,7 +255,10 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             why_flagged=result.why_flagged,
             challenges=[{"question": c["question"], "why": c["why"]}
                         for c in result.challenges],
-            raw_components=result.raw_components,
+            raw_components={
+                **result.raw_components,
+                "audio": result.audio_analysis
+            },
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
             timestamp=datetime.now().isoformat()
@@ -263,6 +266,9 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
 
         store_call(call_id, user_id, response.dict(), transcript=transcript)
         return response
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio analysis failed: {str(e)}")
 
     finally:
         # Always delete temp file, even if analysis fails
@@ -399,7 +405,7 @@ async def submit_feedback(req: FeedbackRequest):
         "status": "feedback_recorded",
         "call_id": req.call_id,
         "note": "Feedback stored for review and evaluation. "
-                "Not used for automatic retraining."
+                "NOT used for automatic retraining."
     }
 
 

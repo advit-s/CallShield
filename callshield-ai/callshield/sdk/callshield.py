@@ -18,11 +18,12 @@ from callshield.engine.fusion import RiskFusionEngine, SignalScores
 from callshield.engine.calibration import CalibrationEngine
 from callshield.engine.challenge import ChallengeGenerator
 from callshield.engine.privacy import PrivacyLayer
+from callshield.engine.deepfake import DeepFakeDetector
 
 
 @dataclass
 class CallShieldResult:
-    """SDK result object with v2.1 confidence and calibration."""
+    """SDK result object with v2.3 confidence and calibration."""
     risk_score: float = 0.0
     risk_band: str = "safe"
     confidence: str = "very_low"
@@ -37,10 +38,11 @@ class CallShieldResult:
     model_status: Dict[str, str] = field(default_factory=dict)
     raw_components: Dict = field(default_factory=dict)
     challenges: List[Dict] = field(default_factory=list)
+    audio_analysis: Dict = field(default_factory=dict)
 
 
 class CallShieldSDK:
-    """v2.1 SDK - Trust & Calibration Release."""
+    """v2.3 SDK - Audio Intelligence Release."""
 
     MODEL_STATUS = {
         "scam_nlp": "implemented",
@@ -49,16 +51,39 @@ class CallShieldSDK:
         "challenge": "implemented",
         "privacy": "implemented",
         "asr": "implemented",
-        "deepfake": "placeholder",
+        "deepfake": "implemented",
         "speaker_verification": "placeholder",
     }
 
-    def __init__(self, custom_weights: Optional[Dict[str, float]] = None):
+    def __init__(self, 
+                 custom_weights: Optional[Dict[str, float]] = None,
+                 deepfake_model_path: Optional[str] = None):
         self.scam_engine = ScamLanguageEngine()
         self.fusion = RiskFusionEngine(weights=custom_weights)
         self.calibration = CalibrationEngine()
         self.challenge = ChallengeGenerator()
         self.privacy = PrivacyLayer()
+        self.deepfake_detector = DeepFakeDetector(model_path=deepfake_model_path)
+
+    def analyze_audio(self, audio_path: str, transcript: str, 
+                      speaker_id: Optional[str] = None) -> CallShieldResult:
+        """Perform combined audio and text analysis."""
+        # 1. Run deepfake detection
+        audio_result = self.deepfake_detector.detect(audio_path)
+        
+        # 2. Run standard analysis with audio signal
+        result = self.analyze_transcript(
+            text=transcript,
+            speaker_id=speaker_id,
+            audio_deepfake_score=audio_result.get("deepfake_score", 0.0)
+        )
+        
+        # 3. Inject audio analysis details
+        result.audio_analysis = audio_result
+        if audio_result.get("deepfake_score", 0) > 0.6:
+            result.why_flagged += " Possible synthetic or cloned voice detected."
+            
+        return result
 
     def analyze_transcript(self, text: str,
                            speaker_id: Optional[str] = None,
@@ -69,13 +94,18 @@ class CallShieldSDK:
         analysis = self.scam_engine.analyze(text)
 
         # 2. Build signal scores
+        # v2.2: More aggressive rule bonus for strong scam indicators
+        bonus = min(len(analysis.detected_cues) * 0.05, 0.25)
+        if analysis.scam_score > 0.8:
+            bonus += 0.15  # Extra boost for high-confidence language matches
+            
         signals = SignalScores(
             scam_language=analysis.scam_score,
             deepfake=audio_deepfake_score,
             identity_mismatch=identity_mismatch,
             urgency=analysis.urgency_score,
             verification_failed=False,
-            rule_bonus=min(len(analysis.detected_cues) * 0.03, 0.15)
+            rule_bonus=min(bonus, 0.4)
         )
 
         # 3. Risk fusion
@@ -93,38 +123,40 @@ class CallShieldSDK:
             "urgency_score": analysis.urgency_score,
         }
         calibrated = self.calibration.calibrate(
-            risk_score=result["risk_score"],
-            band=result["risk_band"].value,
+            risk_score=result.risk_score,
+            band=result.risk_band.value,
             scam_analysis=scam_analysis_dict,
-            detected_cues=result["top_cues"]
+            detected_cues=result.detected_cues
         )
 
         # 5. Generate challenges
         challenges = self.challenge.generate(
             calibrated.risk_band,
             analysis.scam_type.value,
-            result["risk_score"]
+            result.risk_score
         )
 
         # 6. Build "why this was flagged"
         why = self._explain_why(analysis, calibrated)
 
         return CallShieldResult(
-            risk_score=result["risk_score"],
+            risk_score=result.risk_score,
             risk_band=calibrated.risk_band,
             confidence=calibrated.confidence_level.value,
             confidence_score=calibrated.confidence_score,
             warning_level=calibrated.warning_level.value,
-            scam_type=result["scam_type"],
-            scam_type_confidence=result["scam_type_confidence"],
-            detected_cues=result["top_cues"],
+            scam_type=result.scam_type,
+            scam_type_confidence=result.scam_type_confidence,
+            detected_cues=result.detected_cues,
             explanation=calibrated.explanation,
             recommended_action=calibrated.action,
             why_flagged=why,
             model_status=self.MODEL_STATUS,
-            raw_components=result["raw_components"],
-            challenges=[{"question": c.question, "why": c.why, "type": c.expected_type}
-                        for c in challenges]
+            raw_components=result.raw_components,
+            challenges=[
+                {"question": c.question, "why": c.why, "type": c.expected_type}
+                for c in challenges
+            ]
         )
 
     def _explain_why(self, analysis, calibrated) -> str:

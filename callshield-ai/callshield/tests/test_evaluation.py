@@ -27,20 +27,24 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
         "normal": {  # Benign scenarios
             "true_negatives": 0,
             "false_positives": 0,
+            "soft_warnings": 0,
+            "hard_warnings": 0,
             "scores": [],
             "by_band": {"safe": 0, "suspicious": 0, "high": 0, "critical": 0},
         },
         "scam": {  # Scam scenarios
             "true_positives": 0,
             "false_negatives": 0,
+            "soft_warnings": 0,
+            "hard_warnings": 0,
             "scores": [],
             "by_band": {"safe": 0, "suspicious": 0, "high": 0, "critical": 0},
-            "by_category": {cat: {"tp": 0, "fn": 0} for cat in set(s["category"] for s in SCAM_SCENARIOS)},
+            "by_category": {cat: {"tp": 0, "fn": 0, "soft": 0, "hard": 0} for cat in set(s["category"] for s in SCAM_SCENARIOS)},
         }
     }
 
     print(f"{'='*70}")
-    print(f"  CallShield AI - Evaluation Report v2.0")
+    print(f"  CallShield AI - Evaluation Report v2.2")
     print(f"  Testing {len(NORMAL_SCENARIOS)} normal + {len(SCAM_SCENARIOS)} scam scenarios")
     print(f"{'='*70}")
     print()
@@ -51,20 +55,25 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
         result = sdk.analyze_transcript(sc["text"])
         score = result.risk_score
         band = result.risk_band
+        warning = result.warning_level
 
         results["normal"]["scores"].append(score)
         results["normal"]["by_band"][band] += 1
+        
+        if warning in ("soft", "hard", "critical"):
+            results["normal"]["soft_warnings"] += 1
+        if warning in ("hard", "critical"):
+            results["normal"]["hard_warnings"] += 1
 
         # Threshold: safe = <=30 (no false positive if score <= 30)
-        # But let's use the bands themselves: safe=safe, suspicious>=31 = FP
         if band in ("suspicious", "high", "critical"):
             results["normal"]["false_positives"] += 1
             if verbose:
-                print(f"  FP: {sc['id']} (score={score:.1f}, band={band}) - {sc['text'][:60]}...")
+                print(f"  FP: {sc['id']} (score={score:.1f}, band={band}, warn={warning}) - {sc['text'][:60]}...")
         else:
             results["normal"]["true_negatives"] += 1
 
-        print(f"  {sc['id']:4s}: score={score:5.1f}  band={band:10s}  {sc['text'][:50]}...")
+        print(f"  {sc['id']:4s}: score={score:5.1f}  band={band:10s}  warn={warning:8s}  {sc['text'][:50]}...")
 
     print()
 
@@ -74,10 +83,20 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
         result = sdk.analyze_transcript(sc["text"])
         score = result.risk_score
         band = result.risk_band
+        warning = result.warning_level
         cat = sc.get("category", "unknown")
 
         results["scam"]["scores"].append(score)
         results["scam"]["by_band"][band] += 1
+        
+        if warning in ("soft", "hard", "critical"):
+            results["scam"]["soft_warnings"] += 1
+            if cat in results["scam"]["by_category"]:
+                results["scam"]["by_category"][cat]["soft"] += 1
+        if warning in ("hard", "critical"):
+            results["scam"]["hard_warnings"] += 1
+            if cat in results["scam"]["by_category"]:
+                results["scam"]["by_category"][cat]["hard"] += 1
 
         # Threshold: high or critical = TP; suspicious = weak TP; safe = FN
         if band in ("high", "critical"):
@@ -86,7 +105,6 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
                 results["scam"]["by_category"][cat]["tp"] += 1
             cat_label = "TP"
         elif band == "suspicious":
-            # Suspicious is caught but at lower confidence
             results["scam"]["true_positives"] += 1
             if cat in results["scam"]["by_category"]:
                 results["scam"]["by_category"][cat]["tp"] += 1
@@ -97,15 +115,20 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
                 results["scam"]["by_category"][cat]["fn"] += 1
             cat_label = "FN"
             if verbose:
-                print(f"  FN: {sc['id']} (score={score:.1f}, band={band}, cat={cat}) - {sc['text'][:60]}...")
+                print(f"  FN: {sc['id']} (score={score:.1f}, band={band}, warn={warning}, cat={cat}) - {sc['text'][:60]}...")
 
-        print(f"  {sc['id']:4s} [{cat_label}]: score={score:5.1f}  band={band:10s}  {sc['text'][:50]}...")
+        print(f"  {sc['id']:4s} [{cat_label}]: score={score:5.1f}  band={band:10s}  warn={warning:8s}  {sc['text'][:50]}...")
 
     # --- Compute Metrics ---
     tp = results["scam"]["true_positives"]
     fn = results["scam"]["false_negatives"]
     tn = results["normal"]["true_negatives"]
     fp = results["normal"]["false_positives"]
+    
+    soft_recall = results["scam"]["soft_warnings"] / (tp + fn) if (tp + fn) > 0 else 0
+    hard_recall = results["scam"]["hard_warnings"] / (tp + fn) if (tp + fn) > 0 else 0
+    soft_fpr = results["normal"]["soft_warnings"] / (tn + fp) if (tn + fp) > 0 else 0
+    hard_fpr = results["normal"]["hard_warnings"] / (tn + fp) if (tn + fp) > 0 else 0
 
     # Core metrics
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -116,37 +139,44 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
 
     # Print report
     print(f"\n{'='*70}")
-    print(f"  EVALUATION RESULTS")
+    print(f"  EVALUATION RESULTS (v2.2)")
     print(f"{'='*70}")
-    print(f"\n  Normal Analysis:")
-    print(f"    Total scenarios:     {len(NORMAL_SCENARIOS)}")
-    print(f"    True Negatives:      {tn}")
-    print(f"    False Positives:     {fp}")
-    print(f"    FPR:                 {fpr:.3f} ({fpr*100:.1f}%)")
-    avg_normal = sum(results["normal"]["scores"]) / len(results["normal"]["scores"])
-    print(f"    Avg Risk Score:      {avg_normal:.1f}/100")
-    print(f"    Band distribution:   safe={results['normal']['by_band']['safe']}, suspicious={results['normal']['by_band']['suspicious']}, high={results['normal']['by_band']['high']}, critical={results['normal']['by_band']['critical']}")
-
-    print(f"\n  Scam Analysis:")
-    print(f"    Total scenarios:     {len(SCAM_SCENARIOS)}")
-    print(f"    True Positives:      {tp}")
-    print(f"    False Negatives:     {fn}")
-    avg_scam = sum(results["scam"]["scores"]) / len(results["scam"]["scores"])
-    print(f"    Avg Risk Score:      {avg_scam:.1f}/100")
-    print(f"    Band distribution:   safe={results['scam']['by_band']['safe']}, suspicious={results['scam']['by_band']['suspicious']}, high={results['scam']['by_band']['high']}, critical={results['scam']['by_band']['critical']}")
+    print(f"\n  Raw Detection (Risk Band >= Suspicious):")
+    print(f"    Recall:              {recall:.1%} (Target: 85%+)")
+    print(f"    False Positive Rate: {fpr:.1%} (Target: <10%)")
+    
+    print(f"\n  Warning Performance (Calibrated):")
+    print(f"    Soft Warning Recall: {soft_recall:.1%} (Target: 70%+)")
+    print(f"    Soft Warning FPR:    {soft_fpr:.1%}")
+    print(f"    Hard Warning Recall: {hard_recall:.1%}")
+    print(f"    Hard Warning FPR:    {hard_fpr:.1%} (Target: <5%)")
 
     print(f"\n  Overall Metrics:")
     print(f"    Accuracy:            {accuracy:.1%}")
     print(f"    Precision:           {precision:.3f}")
-    print(f"    Recall:              {recall:.3f}")
     print(f"    F1 Score:            {f1:.3f}")
-    print(f"    False Positive Rate: {fpr:.1%}")
 
-    print(f"\n  Per-Category Scam Performance:")
+    print(f"\n  Category-wise Confusion Analysis:")
     for cat, stats in results["scam"]["by_category"].items():
         cat_total = stats["tp"] + stats["fn"]
         cat_recall = stats["tp"] / cat_total if cat_total > 0 else 0
-        print(f"    {cat:30s}: {stats['tp']:3d}/{cat_total:3d} detected (recall={cat_recall:.1%})")
+        cat_soft = stats["soft"] / cat_total if cat_total > 0 else 0
+        status = "✅" if cat_recall >= 0.8 else "⚠️"
+        print(f"    {status} {cat:28s}: {stats['tp']:3d}/{cat_total:3d} (recall={cat_recall:4.1%}) | Soft={cat_soft:4.1%}")
+
+    if fp > 0:
+        print(f"\n  False Positive Root Cause Analysis (Top 3):")
+        # Identify top categories causing FPs
+        fp_cues = []
+        for sc in NORMAL_SCENARIOS:
+            res = sdk.analyze_transcript(sc["text"])
+            if res.risk_band != "safe":
+                fp_cues.extend(res.why_flagged.split(", "))
+        
+        from collections import Counter
+        top_cues = Counter(fp_cues).most_common(3)
+        for cue, count in top_cues:
+            print(f"    - {cue:30s}: {count:2d} occurrences")
 
     return {
         "accuracy": accuracy,
@@ -154,10 +184,10 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
         "recall": recall,
         "f1": f1,
         "false_positive_rate": fpr,
-        "avg_normal_score": avg_normal,
-        "avg_scam_score": avg_scam,
-        "normal_results": results["normal"],
-        "scam_results": results["scam"],
+        "soft_warning_recall": soft_recall,
+        "hard_warning_fpr": hard_fpr,
+        "avg_normal_score": sum(results["normal"]["scores"]) / len(results["normal"]["scores"]),
+        "avg_scam_score": sum(results["scam"]["scores"]) / len(results["scam"]["scores"]),
     }
 
 

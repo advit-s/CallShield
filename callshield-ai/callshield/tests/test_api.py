@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 # Test setup: make sure we import from the package root
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..")
+    0, os.path.join(os.path.dirname(__file__), "..", "..")
 )
 
 from callshield.api.server import app
@@ -139,8 +139,9 @@ def test_score_call_no_content():
 # ============= /analyze-audio (temp file cleanup) =============
 
 def test_analyze_audio_temp_cleanup():
-    """POST /analyze-audio -- temp file must be deleted even on failure.""
+    """POST /analyze-audio -- temp file must be deleted even on failure."""
     from unittest.mock import patch
+    import callshield.engine.asr
 
     with patch("callshield.engine.asr.ASRTranscriber") as MockASR:
         # Simulate a failure

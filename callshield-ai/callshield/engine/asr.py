@@ -1,7 +1,15 @@
-import whisper
+try:
+    import whisper
+except ImportError:
+    whisper = None
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
 import warnings
 from typing import Optional
-import torch
 from pathlib import Path
 
 
@@ -15,6 +23,10 @@ class ASRTranscriber:
         self._load_model()
 
     def _load_model(self):
+        if whisper is None:
+            warnings.warn("Whisper library not found. Transcription will be unavailable.")
+            return
+
         try:
             self.model = whisper.load_model(self.model_name)
             print(f"Loaded Whisper model: {self.model_name}")

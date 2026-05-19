@@ -83,9 +83,9 @@ class RiskFusionEngine:
     """
 
     DEFAULT_WEIGHTS = {
-        "scam_language": 0.35,
-        "deepfake": 0.25,
-        "identity_mismatch": 0.20,
+        "scam_language": 0.45,  # Increased from 0.35
+        "deepfake": 0.20,       # Decreased from 0.25
+        "identity_mismatch": 0.15, # Decreased from 0.20
         "urgency": 0.10,
         "verification_failure": 0.10,
     }

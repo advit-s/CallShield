@@ -125,13 +125,9 @@ class CalibrationEngine:
             confidence *= 0.5
 
         # 5. Determine warning level based on risk AND confidence
-        if risk_score >= 61:
+        # v2.2: Less harsh thresholds to improve recall
+        if risk_score >= 31:
             warning_level = self._warning_level(risk_score, confidence, diversity)
-        elif risk_score >= 31:
-            if confidence > 0.6:
-                warning_level = WarningLevel.SOFT
-            else:
-                warning_level = WarningLevel.NONE  # Low confidence = don't warn yet
         else:
             warning_level = WarningLevel.NONE
 
@@ -157,17 +153,18 @@ class CalibrationEngine:
 
     def _warning_level(self, risk: float, confidence: float, diversity: int) -> WarningLevel:
         """Determine warning level from risk + confidence + diversity."""
-        # If confidence is very low, downgrade the warning
-        if confidence < 0.3:
-            return WarningLevel.SOFT if risk >= 81 else WarningLevel.NONE
-
-        # Normal logic
-        if diversity >= 3 and risk >= 71:
+        # v2.2 calibrated thresholds
+        if risk >= 81 and diversity >= 3:
             return WarningLevel.CRITICAL
-        elif diversity >= 2 and risk >= 51:
+        
+        if (risk >= 65 and diversity >= 2) or (risk >= 75 and confidence >= 0.6):
             return WarningLevel.HARD
-        elif risk >= 31 and confidence >= 0.5:
-            return WarningLevel.SOFT
+            
+        if risk >= 31:
+            # Multi-signal (diversity >= 1) or moderate confidence
+            if diversity >= 1 or confidence >= 0.35:
+                return WarningLevel.SOFT
+                
         return WarningLevel.NONE
 
     def _confidence_level(self, score: float) -> ConfidenceLevel:

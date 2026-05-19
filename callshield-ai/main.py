@@ -13,27 +13,28 @@ import sys
 import os
 from pathlib import Path
 
-# Add callshield module to path
-sys.path.insert(0, str(Path(__file__).parent / "callshield"))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent))
 
 
 def run_server():
     """Start the CallShield API server."""
+    import os
     import uvicorn
-    from callshield.api.server import app
-    from callshield.api.config import get_config
 
-    config = get_config()
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
+
     print(f"\n{'='*60}")
-    print(f"  CallShield AI v2.0 - Server")
-    print(f"  API: http://{config.HOST}:{config.PORT}")
-    print(f"  Dashboard: http://{config.HOST}:{config.PORT}/demo")
+    print(f"  CallShield AI v2.1 - Server")
+    print(f"  API: http://{host}:{port}")
+    print(f"  Dashboard: http://{host}:{port}/demo")
     print(f"{'='*60}\n")
 
     uvicorn.run(
         "callshield.api.server:app",
-        host=config.HOST,
-        port=config.PORT,
+        host=host,
+        port=port,
         reload=True,
         log_level="info"
     )
