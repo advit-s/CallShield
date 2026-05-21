@@ -63,25 +63,25 @@ class FeedbackRequest(BaseModel):
 
 
 class RiskResult(BaseModel):
-    """Call analysis response with v2.1 confidence and calibration."""
+    """Call analysis response with confidence and calibration."""
     call_id: str
     risk_score: float = Field(..., description="Risk score 0-100")
     risk_band: RiskBand
-    # v2.1: Confidence calibration
+    # Confidence calibration
     confidence: str = Field("very_low", description="Confidence level: very_low, low, medium, high, very_high")
     confidence_score: float = Field(0.0, description="Confidence as a score (0-1)")
     warning_level: str = Field("none", description="none, soft, hard, critical")
-    # v2.1: Scam type
+    # Scam type
     scam_type: str = Field(..., description="Detected scam type or 'unknown'")
     scam_type_confidence: float = Field(..., description="Confidence in scam type (0-1)")
-    # v2.1: Explainability
+    # Explainability
     detected_cues: List[str] = Field(default_factory=list, description="Detected scam cues")
     explanation: str = Field(..., description="Human-readable explanation")
     recommended_action: str = Field(..., description="User-facing recommended action")
     why_flagged: str = Field("", description="User-facing: why this call was flagged")
-    # v2.1: Challenge-response
+    # Challenge-response
     challenges: List[Dict] = Field(default_factory=list, description="Safe verification challenges")
-    # v2.1: Raw components
+    # Raw components
     raw_components: Dict[str, Any] = Field(default_factory=dict, description="Raw signal scores")
     model_status: Dict[str, str] = Field(default_factory=dict, description="Which models ran")
     processing_time_ms: float = Field(..., description="API processing time in ms")

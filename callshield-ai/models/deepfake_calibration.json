@@ -1,0 +1,63 @@
+{
+  "version": "2.3.4",
+  "status": "calibrated",
+  "created_at": "2026-05-21T09:37:05.905894",
+  "model_path": "models\\deepfake_mel_cnn_2021_finetuned.pt",
+  "operating_threshold": 0.1978759765625,
+  "target_fpr": 0.1,
+  "calibration_source": "reports\\deepfake_eval_2021_finetuned_test.json",
+  "note": "Conservative external-domain threshold. Scores below this threshold are not used as a deepfake fusion signal.",
+  "primary_report": {
+    "report": "data\\deepfake_2021_finetune\\test.csv",
+    "files": 10000,
+    "roc_auc": 0.9979459975038396,
+    "eer": 0.020698491883719063,
+    "eer_threshold": 0.64990234375,
+    "default_threshold": {
+      "threshold": 0.5,
+      "fpr": 0.039189784236019376,
+      "recall": 0.9853797386466554,
+      "f1": 0.9869120124400673
+    },
+    "target_fpr": {
+      "target": 0.1,
+      "threshold": 0.1978759765625,
+      "accuracy": 0.974,
+      "precision": 0.9714682489584648,
+      "recall": 0.9956009833096131,
+      "f1": 0.9833865814696484,
+      "false_positive_rate": 0.09951563188022898,
+      "false_negative_rate": 0.004399016690386855,
+      "confusion_matrix": {
+        "tp": 7695,
+        "tn": 2045,
+        "fp": 226,
+        "fn": 34
+      },
+      "true_positives": 7695,
+      "true_negatives": 2045,
+      "false_positives": 226,
+      "false_negatives": 34
+    },
+    "best_f1": {
+      "threshold": 0.4033203125,
+      "accuracy": 0.98,
+      "precision": 0.9850534724906584,
+      "recall": 0.9891318411178678,
+      "f1": 0.987088444157521,
+      "false_positive_rate": 0.05107881990312638,
+      "false_negative_rate": 0.01086815888213223,
+      "confusion_matrix": {
+        "tp": 7645,
+        "tn": 2155,
+        "fp": 116,
+        "fn": 84
+      },
+      "true_positives": 7645,
+      "true_negatives": 2155,
+      "false_positives": 116,
+      "false_negatives": 84
+    }
+  },
+  "secondary_reports": []
+}

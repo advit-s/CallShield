@@ -1,4 +1,4 @@
-"""CallShield API Server v2.1 - Trust & Calibration (Complete).
+"""CallShield API Server v2.3.4 - Deepfake Calibration Patch.
 
 Endpoints:
   POST /analyze-transcript       Analyze text with confidence & calibration
@@ -8,7 +8,7 @@ Endpoints:
   POST /verify-speaker           Enroll speaker (consent required)
   POST /submit-feedback          User feedback (stored for review, NOT auto-retrained)
   GET  /call-summary/{id}        Full analysis report
-  GET  /model-status             Which models are implemented vs placeholder
+  GET  /model-status             Which models are trained, implemented, or pending
   DELETE /call-summary/{id}      Delete specific call data
   DELETE /user-data/{id}         Delete ALL user data (Right to Erasure)
   GET  /health                   Health + uptime
@@ -31,7 +31,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Use proper package imports (not sys.path hacks)
-from callshield.sdk.callshield import CallShieldSDK, CallShieldResult
+from callshield.sdk import CallShieldSDK, CallShieldResult
 from callshield.engine.privacy import PrivacyLayer
 from callshield.api.schemas import (
     TranscriptRequest, AudioRequest, ScoreCallRequest,
@@ -45,6 +45,10 @@ from callshield.api.schemas import (
 CALL_HISTORY: Dict[str, Dict] = {}    # call_id -> call data
 FEEDBACK_STORE: Dict[str, Dict] = {}  # call_id -> user feedback
 START_TIME = time.time()
+APP_VERSION = "2.3.4"
+APP_TITLE = "CallShield AI v2.3.4"
+APP_RELEASE = "Deepfake Calibration Patch"
+DEBUG_MODE = os.environ.get("CALLSHIELD_DEBUG", "false").lower() == "true"
 
 
 class TimingMiddleware(BaseHTTPMiddleware):
@@ -57,11 +61,11 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(
-    title="CallShield AI v2.1",
-    description="Trust & Calibration: Real-time scam call intelligence. "
+    title=APP_TITLE,
+    description=f"{APP_RELEASE}: Real-time scam call intelligence. "
                 "Caller ID tells you who might be calling. CallShield tells you "
                 "whether the conversation is becoming dangerous.",
-    version="2.1.0",
+    version=APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -87,8 +91,8 @@ def _elapsed() -> int:
 @app.get("/", tags=["System"])
 async def root():
     return {
-        "service": "CallShield AI v2.1",
-        "release": "Trust & Calibration",
+        "service": APP_TITLE,
+        "release": APP_RELEASE,
         "slogan": "Caller ID tells you who might be calling. "
                    "CallShield tells you whether the conversation is becoming dangerous.",
         "docs": "/docs",
@@ -100,17 +104,18 @@ async def root():
 
 @app.get("/health", tags=["System"], response_model=HealthResponse)
 async def health():
+    status = sdk.get_model_status()
     return HealthResponse(
         status="ok",
-        version="2.1.0",
+        version=APP_VERSION,
         models_loaded={
             "scam_nlp": True,
             "fusion": True,
             "calibration": True,
             "challenge": True,
             "privacy": True,
-            "transcription": True,
-            "deepfake": False,      # Placeholder
+            "transcription": status["asr"] == "available",
+            "deepfake": status["deepfake"] == "trained_model_loaded",
             "speaker_verification": False,  # Placeholder
         },
         uptime_seconds=_elapsed()
@@ -119,41 +124,45 @@ async def health():
 
 @app.get("/model-status", tags=["System"])
 async def model_status():
-    """Show which models are fully implemented vs placeholder."""
+    """Show which modules are trained, implemented, or pending."""
+    status = sdk.get_model_status()
     return ModelStatusResponse(
-        version="2.1.0",
-        release="Trust & Calibration",
+        version=APP_VERSION,
+        release=APP_RELEASE,
         modules={
             "scam_nlp": {
-                "status": "implemented",
+                "status": status["scam_nlp"],
                 "description": "Multi-language scam language detection (EN/HI/Hinglish)"
             },
             "fusion": {
-                "status": "implemented",
+                "status": status["fusion"],
                 "description": "Multi-signal risk fusion engine (5 signals, calibrated)"
             },
             "calibration": {
-                "status": "implemented",
+                "status": status["calibration"],
                 "description": "Confidence-based alert calibration (signal diversity + reliability)"
             },
             "challenge": {
-                "status": "implemented",
+                "status": status["challenge"],
                 "description": "Safe verification challenge generation by scam type"
             },
             "privacy": {
-                "status": "implemented",
+                "status": status["privacy"],
                 "description": "Data minimization, consent, Right to Erasure"
             },
-            "transcription": {
-                "status": "implemented",
+            "asr": {
+                "status": status["asr"],
                 "description": "ASR via OpenAI Whisper (support for EN/HI)"
             },
             "deepfake": {
-                "status": "placeholder",
-                "description": "Audio deepfake detection (awaiting lightweight model)"
+                "status": status["deepfake"],
+                "description": "Log-mel CNN with calibrated fusion threshold",
+                "calibration_status": sdk.deepfake_detector.calibration_status,
+                "operating_threshold": str(round(sdk.deepfake_detector.operating_threshold, 4)),
+                "target_fpr": str(sdk.deepfake_detector.target_fpr),
             },
             "speaker_verification": {
-                "status": "placeholder",
+                "status": status["speaker_verification"],
                 "description": "ECAPA-TDNN speaker matching (awaiting model + consent flow)"
             },
         }
@@ -291,9 +300,14 @@ async def score_call(req: ScoreCallRequest):
     start = time.time()
 
     try:
-        # If no text but has audio path, run audio pipeline first
+        if req.audio_path and not DEBUG_MODE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="audio_path is available only when CALLSHIELD_DEBUG=true. Use /analyze-audio for uploaded audio."
+            )
+
+        # If no text but has audio path, run audio pipeline first in local debug mode.
         if not req.transcript and req.audio_path:
-            # Audio file path provided (for batch/debugging only)
             if not os.path.exists(req.audio_path):
                 raise HTTPException(status_code=404, detail="Audio file not found")
 
@@ -304,7 +318,7 @@ async def score_call(req: ScoreCallRequest):
 
         # Run analysis
         result = sdk.analyze_transcript(
-            text=req.transcript,
+            text=req.transcript or "",
             speaker_id=req.enrolled_speaker_id,
             audio_deepfake_score=req.deepfake_score or 0.0
         )
@@ -490,10 +504,10 @@ async def call_summary(call_id: str):
 @app.get("/demo", response_class=HTMLResponse)
 async def demo_page():
     """Serve the interactive product demo dashboard."""
-    html_path = Path(__file__) / ".." / ".." / "dashboard" / "index.html"
+    html_path = Path(__file__).resolve().parents[1] / "dashboard" / "index.html"
     if html_path.exists():
         return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
-    return HTMLResponse(content="<h1>CallShield AI v2.1</h1><p>Dashboard not available.</p>")
+    return HTMLResponse(content=f"<h1>{APP_TITLE}</h1><p>Dashboard not available.</p>")
 
 
 # === Helpers ===

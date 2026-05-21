@@ -1,40 +1,34 @@
-# CallShield AI v2.0 - Scam Call Intelligence Engine
+# CallShield AI v2.3.4 - Deepfake Calibration Patch
 
-> **Caller ID tells you who might be calling. CallShield tells you whether the conversation is becoming dangerous.**
+> Caller ID tells you who might be calling. CallShield tells you whether the conversation is becoming dangerous.
 
-## What is CallShield?
+CallShield is a real-time scam call intelligence layer. It analyzes call conversations for scam behavior such as urgency, coercion, money demands, secrecy pressure, and identity manipulation.
 
-CallShield is a real-time scam call intelligence layer. It analyzes live call conversations to detect scam behavior — urgency, coercion, money demands, synthetic voices — and warns users before they fall victim.
+## Current Model Status
 
-**Key insight:** Even if the caller ID looks normal, the conversation itself can be dangerous.
+| Module | Status |
+|--------|--------|
+| Scam language NLP | Implemented |
+| Risk fusion | Implemented |
+| Calibration | Implemented |
+| Challenge prompts | Implemented |
+| Privacy layer | Implemented |
+| ASR | Available when Whisper is installed |
+| Deepfake audio | First baseline trained, calibrated threshold active |
+| Speaker verification | Placeholder |
 
-## Architecture (Three-Signal Fusion)
+The deepfake pipeline includes log-mel feature extraction, a CNN architecture, API integration, training scripts, GPU training, external ASVspoof 2021 validation, and a calibrated fusion threshold.
 
-| Signal | Priority | What it detects |
-|--------|---------|-----------------|
-| **Scam Language** | 35% | Urgency, coercion, money demands, threats, secrecy |
-| **Deepfake Audio** | 25% | AI-generated/synthetic voice |
-| **Identity Mismatch** | 20% | Voice doesn't match trusted profile |
-| **Urgency** | 10% | Excessive pressure to act immediately |
-| **Verification Failure** | 10% | Failed challenge-response prompts |
+## Deepfake Model Status
 
-**Risk Formula:**
-```
-risk = 0.35×scam + 0.25×deepfake + 0.20×identity + 0.10×urgency + 0.10×verification + rule_bonus
-```
+Deepfake model status: untrained until checkpoint is trained.
 
-## Risk Bands
+Before `models/deepfake_mel_cnn.pt` exists, CallShield reports `pipeline_implemented_no_trained_model`, returns `deepfake_score: null`, and keeps `used_in_fusion: false`. After a checkpoint is trained and loaded, CallShield reports `trained_model_loaded`.
 
-| Score | Band | Action |
-|-------|------|--------|
-| 0-30 | Safe | No action needed |
-| 31-60 | Suspicious | Be cautious. Consider verification question |
-| 61-80 | High Risk | Do not send money. Hang up and verify |
-| 81-100 | Critical | HANG UP. Report. Call back known number |
+The deployed baseline uses `models/deepfake_mel_cnn.pt` with `models/deepfake_calibration.json`. The current conservative operating threshold is `0.9683`, selected from ASVspoof 2021 external validation at target FPR <= 10%. Scores below that threshold are reported as raw model scores but do not boost the deepfake fusion signal.
 
 ## Quick Start
 
-### 1. Start the Server
 ```bash
 cd callshield-ai
 pip install -r requirements.txt
@@ -43,115 +37,160 @@ python3 main.py server
 
 Open [http://localhost:8000/demo](http://localhost:8000/demo) for the dashboard.
 
-### 2. SDK Usage
+## SDK Usage
+
 ```python
 from callshield.sdk import CallShieldSDK
 
 sdk = CallShieldSDK()
-result = sdk.analyze_transcript("Mera phone dead hai, abhi ₹25,000 bhejo")
+result = sdk.analyze_transcript("Mera phone dead hai, abhi Rs 25,000 bhejo")
 
 print(f"Risk: {result.risk_score}/100 ({result.risk_band})")
 print(f"Type: {result.scam_type}")
 print(f"Action: {result.recommended_action}")
+print(result.model_status)
 ```
 
-### 3. Run Tests
-```bash
-python3 main.py test
-# 100 scenarios (50 normal + 50 scam)
-# Reports: Accuracy, Precision, Recall, F1, FPR
-```
+## Risk Fusion
 
-## Project Structure
+Risk scoring combines scam language, trained deepfake score when available, identity mismatch, urgency, verification failure, and rule bonuses.
 
-```
-callshield/
-  engine/           # Core analysis engine
-    scam_nlp.py     # Scam language detection (EN/HI/Hinglish)
-    fusion.py         # Risk fusion engine
-    privacy.py        # Privacy utilities
-    audio.py          # VAD + preprocessing
-    deepfake.py       # Deepfake detection
-    asr.py            # Whisper transcription
-    speaker.py        # Speaker verification
-  api/              # FastAPI backend
-    server.py         # API endpoints
-    schemas.py        # Pydantic models
-    config.py         # Configuration
-  sdk/              # Python SDK
-    callshield.py     # SDK wrapper
-  dashboard/        # Demo dashboard
-    index.html
-  tests/            # Test suite
-    scenarios_normal.py
-    scenarios_scam.py
-    test_evaluation.py
+When no trained deepfake checkpoint exists:
+
+```json
+{
+  "deepfake_score": null,
+  "confidence": "unavailable",
+  "model_status": "pipeline_implemented_no_trained_model",
+  "used_in_fusion": false
+}
 ```
 
 ## API Endpoints
 
 | Endpoint | Description |
-|----------|--------|
+|----------|-------------|
 | `POST /analyze-transcript` | Analyze call transcript for scam patterns |
-| `POST /analyze-audio` | Analyze uploaded audio (full pipeline) |
-| `POST /score-call` | Full call analysis |
+| `POST /analyze-audio` | Analyze uploaded audio through ASR plus text/audio pipeline |
+| `POST /score-call` | Score transcript plus optional precomputed scores |
 | `POST /verify-speaker` | Enroll speaker for voice verification |
-| `POST /submit-feedback` | User feedback for model improvement |
-| `GET /call-summary/{id}` | Full call analysis report |
-| `GET /health` | Health + model status |
+| `POST /submit-feedback` | Store user feedback for review |
+| `GET /call-summary/{id}` | Retrieve a call analysis report |
+| `GET /model-status` | Show trained, implemented, and pending modules |
+| `GET /health` | Health and module load status |
 
-## Scam Categories Detected
+`/score-call` accepts `audio_path` only when `CALLSHIELD_DEBUG=true`. Public audio analysis should use `/analyze-audio` file upload.
 
-- Family emergency scams
-- Bank/KYC fraud
-- Police/legal threat scams
-- Tech support scams
-- Job/investment scams
-- OTP/PIN/password requests
-- UPI/payment requests
-- Remote access requests
-- Secrecy pressure
-- Alternate number claims
+## Deepfake Training Pipeline
+
+Expected CSV schema:
+
+```csv
+audio_path,label,source,speaker_id
+/path/to/audio.wav,0,asvspoof2019,bona_fide
+/path/to/audio.wav,1,asvspoof2019,spoof
+```
+
+Labels:
+
+```text
+0 = real
+1 = fake
+```
+
+Suggested workflow after datasets finish downloading:
+
+```bash
+python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake
+python scripts/prepare_wavefake.py --root /path/to/WaveFake --out data/deepfake
+python scripts/validate_deepfake_dataset.py --data data/deepfake
+python scripts/train_deepfake_mel_cnn.py --data data/deepfake --epochs 20
+python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --test data/deepfake/test.csv
+```
+
+Dry-run workflow for a small integration pass:
+
+```bash
+python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake --limit 40
+python scripts/validate_deepfake_dataset.py --data data/deepfake
+python scripts/train_deepfake_mel_cnn.py --data data/deepfake --epochs 1 --batch-size 4 --limit 40
+python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --test data/deepfake/test.csv --limit 40
+```
+
+Training writes the smoke-test checkpoint to `models/deepfake_mel_cnn.pt`.
+
+## First Trained Deepfake Baseline
+
+The first baseline is meant to prove the pipeline, not production-grade detection. Keep these metrics separate from scam NLP / conversation-risk metrics:
+
+- Scam NLP evaluation: `python main.py test`
+- Deepfake audio evaluation: `python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --test data/deepfake/test.csv`
+- Combined fusion behavior: verify `/model-status` and `used_in_fusion` after the checkpoint loads
+
+Evaluation writes deepfake audio metrics to `reports/deepfake_eval_v2_3_3.json` by default. Watch accuracy, precision, recall, F1, ROC-AUC, false positive rate, false negative rate, and the confusion matrix.
+
+## RTX 3050 GPU Training
+
+For an NVIDIA RTX 3050 laptop, install the CUDA PyTorch wheel inside the activated virtual environment:
+
+```powershell
+python -m pip install --force-reinstall torch==2.2.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cu121
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+```
+
+Then run a balanced GPU baseline:
+
+```powershell
+python scripts\prepare_asvspoof.py --root "..\ASVspoof_2019_LA" --out data\deepfake --limit 5000 --balanced
+python scripts\validate_deepfake_dataset.py --data data\deepfake
+python scripts\train_deepfake_mel_cnn.py --data data\deepfake --epochs 10 --batch-size 32 --limit 5000 --device cuda --amp --num-workers 2
+python scripts\evaluate_deepfake.py --checkpoint models\deepfake_mel_cnn.pt --test data\deepfake\val.csv --limit 1000 --device cuda --amp --num-workers 2 --out-json reports\deepfake_eval_v2_3_3_gpu_val_5000.json
+```
+
+If the laptop runs out of GPU memory, reduce `--batch-size` to `16`. If Windows multiprocessing acts up, set `--num-workers 0`.
+
+## VS Code Workflow
+
+Open the `callshield-ai` folder in VS Code, then use `Terminal > Run Task...`.
+
+Recommended order:
+
+```text
+CallShield: create venv
+CallShield: install requirements
+CallShield: install torch CUDA 12.1
+CallShield: check CUDA
+v2.3.4: full deepfake smoke pipeline
+CallShield: model status SDK
+CallShield: server
+CallShield: model status API
+```
+
+For parallel work, run:
+
+```text
+v2.3.4: parallel audio train + scam NLP eval
+```
+
+This trains the deepfake audio smoke run while evaluating the scam NLP rules. The current repo does not yet contain a trainable scam NLP model, so there are not two trainable model families to optimize in parallel yet.
+
+## Tests
+
+```bash
+python3 -m compileall -q .
+python3 -m pytest -q
+python3 main.py test
+```
 
 ## Privacy-First Design
 
 - No raw audio stored by default
-- Phone numbers hashed (SHA-256)
+- Phone numbers can be hashed before storage
 - Speaker enrollment requires consent
-- Temporal files only
-- Explainable, user-controlled warnings
-- Call-back recommendation (not auto-blocking)
-
-## Example Output
-
-```json
-{
-  "risk_score": 56.2,
-  "risk_band": "suspicious",
-  "scam_type": "family_emergency",
-  "detected_cues": [
-    "family_emergency: i'm in trouble",
-    "alternate_number_claim: my phone is dead",
-    "secrecy_pressure: don't tell anyone"
-  ],
-  "explanation": "Caller using urgency and secrecy. Claims to be family from unknown number requesting money.",
-  "recommended_action": "Be cautious. Consider asking a verification question. Do not share financial details."
-}
-```
-
-## B2B Integration
-
-CallShield can be integrated as:
-- **Telecom layer**: Real-time call analysis + warning overlay
-- **Bank layer**: Transaction hold on high-risk calls
-- **App layer**: Truecaller-style caller warning
-- **SDK**: Python SDK for custom apps
+- Uploaded audio is written to a temporary file and deleted after analysis
+- Transcripts are stored only when `STORE_TRANSCRIPTS=true`
+- High-risk calls recommend safe callback and independent verification
 
 ## License
 
 MIT License - Hackathon/Research Use
-
----
-
-**Built for:** Hackathon Demo → Product Pitch
-**Positioning:** "Conversation intelligence layer that makes caller ID smarter by understanding what happens after the call starts."

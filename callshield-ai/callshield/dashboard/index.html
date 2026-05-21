@@ -200,6 +200,39 @@
         .call-red { background: var(--danger); color: #fff; }
         .call-blue { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
         .call-blue:hover { background: var(--card-hover); }
+        .mode-banner {
+            margin-bottom: 20px; padding: 14px 16px; border: 1px solid rgba(245,158,11,0.45);
+            border-radius: 8px; background: rgba(245,158,11,0.08); color: #fde68a;
+            display: flex; justify-content: space-between; gap: 16px; align-items: center;
+            font-size: 0.9rem;
+        }
+        .mode-banner span { color: var(--text-muted); }
+        .integration-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 1100px) { .integration-grid { grid-template-columns: 1fr; } }
+        .mini-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+        .mini-title {
+            font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); font-weight: 700; margin-bottom: 12px;
+        }
+        .form-stack { display: flex; flex-direction: column; gap: 10px; }
+        .field, .textarea {
+            width: 100%; border: 1px solid var(--border); border-radius: 8px;
+            background: var(--bg); color: var(--text); font-family: var(--font);
+            padding: 10px 12px; font-size: 0.9rem;
+        }
+        .textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+        .submit-btn {
+            border: none; border-radius: 8px; background: #2563eb; color: #fff;
+            padding: 10px 14px; font-weight: 700; cursor: pointer; font-family: var(--font);
+        }
+        .submit-btn:hover { background: #1d4ed8; }
+        .status-list { display: flex; flex-direction: column; gap: 8px; }
+        .status-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.85rem; }
+        .status-chip { border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+        .chip-ready { background: rgba(16,185,129,0.15); color: var(--safe); }
+        .chip-pending { background: rgba(245,158,11,0.15); color: var(--warn); }
+        .chip-off { background: rgba(148,163,184,0.15); color: var(--text-muted); }
+        .backend-result { margin-top: 10px; color: var(--text-muted); font-size: 0.82rem; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -233,6 +266,38 @@
             <button class="call-btn call-green" id="btn-accept">📞 Accept Call</button>
             <button class="call-btn call-red" id="btn-end" style="display:none">🛑 End Call</button>
             <button class="call-btn call-blue" id="btn-simulate" disabled>▶️ Simulate Scenario</button>
+        </div>
+
+        <div class="mode-banner">
+            <strong>Demo Simulation Mode</strong>
+            <span>Scenario playback is synthetic. The forms below call the local API.</span>
+        </div>
+
+        <div class="integration-grid">
+            <div class="mini-card">
+                <div class="mini-title">Model Status</div>
+                <div class="status-list" id="model-status-list">
+                    <div class="status-row"><span>Loading</span><span class="status-chip chip-off">pending</span></div>
+                </div>
+            </div>
+            <div class="mini-card">
+                <div class="mini-title">Analyze Transcript</div>
+                <form class="form-stack" id="transcript-form">
+                    <input class="field" id="transcript-call-id" value="dashboard-transcript-001" aria-label="Call ID">
+                    <textarea class="textarea" id="transcript-input" aria-label="Transcript">Send Rs 25000 immediately via UPI. Do not tell anyone.</textarea>
+                    <button class="submit-btn" type="submit">POST /analyze-transcript</button>
+                </form>
+                <div class="backend-result" id="transcript-result"></div>
+            </div>
+            <div class="mini-card">
+                <div class="mini-title">Analyze Audio</div>
+                <form class="form-stack" id="audio-form">
+                    <input class="field" id="audio-call-id" value="dashboard-audio-001" aria-label="Call ID">
+                    <input class="field" id="audio-file" type="file" accept="audio/*" aria-label="Audio file">
+                    <button class="submit-btn" type="submit">POST /analyze-audio</button>
+                </form>
+                <div class="backend-result" id="audio-result"></div>
+            </div>
         </div>
 
         <div class="scenario-selector" id="scenario-bar" style="display:none">
@@ -516,6 +581,87 @@
             });
         }
 
+        function statusChipClass(status) {
+            if (status === 'implemented' || status === 'available' || status === 'trained_model_loaded') return 'chip-ready';
+            if (status === 'pipeline_implemented_no_trained_model' || status === 'checkpoint_load_failed') return 'chip-pending';
+            return 'chip-off';
+        }
+
+        async function loadModelStatus() {
+            const list = $('model-status-list');
+            try {
+                const res = await fetch('/model-status');
+                const data = await res.json();
+                list.innerHTML = '';
+                Object.entries(data.modules || {}).forEach(([name, info]) => {
+                    const row = document.createElement('div');
+                    row.className = 'status-row';
+                    row.innerHTML = `<span>${name.replaceAll('_', ' ')}</span><span class="status-chip ${statusChipClass(info.status)}">${info.status}</span>`;
+                    list.appendChild(row);
+                });
+            } catch (err) {
+                list.innerHTML = '<div class="status-row"><span>API offline</span><span class="status-chip chip-off">unavailable</span></div>';
+            }
+        }
+
+        function renderBackendResult(data, targetId) {
+            $(targetId).textContent = `Risk ${data.risk_score}/100 (${data.risk_band}). ${data.recommended_action}`;
+            updateGauge(data.risk_score || 0);
+            const raw = data.raw_components || {};
+            updateBar('scam', raw.scam_language || 0);
+            updateBar('df', raw.deepfake || 0);
+            updateBar('id', raw.identity_mismatch || 0);
+            updateBar('urgency', raw.urgency || 0);
+            updateBar('verify', raw.verification_failed ? 1 : 0);
+            setAction(data.risk_band ? data.risk_band.toUpperCase() : 'Result', data.recommended_action || '');
+            updateWhyFlagged(data.risk_score || 0, data.confidence_score || 0, data.why_flagged || data.explanation || '');
+            $('transcript').textContent = data.explanation || 'Backend analysis complete.';
+            $('cues').innerHTML = '';
+            (data.detected_cues || []).slice(0, 8).forEach(cue => addCue(cue, data.risk_score >= 61 ? 'danger' : 'warn'));
+        }
+
+        $('transcript-form').onsubmit = async event => {
+            event.preventDefault();
+            $('transcript-result').textContent = 'Analyzing...';
+            try {
+                const res = await fetch('/analyze-transcript', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        call_id: $('transcript-call-id').value,
+                        transcript: $('transcript-input').value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Transcript analysis failed');
+                renderBackendResult(data, 'transcript-result');
+            } catch (err) {
+                $('transcript-result').textContent = err.message;
+            }
+        };
+
+        $('audio-form').onsubmit = async event => {
+            event.preventDefault();
+            const file = $('audio-file').files[0];
+            if (!file) {
+                $('audio-result').textContent = 'Choose an audio file first.';
+                return;
+            }
+            $('audio-result').textContent = 'Uploading and analyzing...';
+            const body = new FormData();
+            body.append('audio', file);
+            try {
+                const callId = encodeURIComponent($('audio-call-id').value);
+                const res = await fetch(`/analyze-audio?call_id=${callId}`, { method: 'POST', body });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Audio analysis failed');
+                renderBackendResult(data, 'audio-result');
+                await loadModelStatus();
+            } catch (err) {
+                $('audio-result').textContent = err.message;
+            }
+        };
+
         function showAlert() {
             $('alert-overlay').style.display = 'flex';
         }
@@ -563,6 +709,8 @@
             hideAlert();
             $('btn-end').click();
         };
+
+        loadModelStatus();
     </script>
 </body>
 </html>

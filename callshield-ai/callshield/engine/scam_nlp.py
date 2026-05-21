@@ -1,4 +1,4 @@
-"""CallShield Scam Language Intelligence Engine (v2.2).
+"""CallShield Scam Language Intelligence Engine (v2.3.3).
 
 Product-grade scam detection with context-aware scoring.
 """
@@ -39,7 +39,7 @@ class ScamAnalysis:
 class ScamLanguageEngine:
     """
     Product-grade scam language detection engine.
-    v2.2: Context-aware scoring with benign context penalization.
+    Context-aware scoring with benign context penalization.
     """
 
     PATTERNS = {

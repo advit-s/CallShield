@@ -1,4 +1,4 @@
-"""CallShield Calibration Engine (v2.1).
+"""CallShield Calibration Engine (v2.3.3).
 
 Purpose:
 - Compute confidence levels for risk scores
@@ -47,7 +47,7 @@ class CalibrationResult:
 
 class CalibrationEngine:
     """
-    v2.1 calibration engine for reducing false positives.
+    Calibration engine for reducing false positives.
 
     Design principles:
     1. Single-signal alerts are LOW confidence (e.g. just "urgent" or just "money")
@@ -125,7 +125,7 @@ class CalibrationEngine:
             confidence *= 0.5
 
         # 5. Determine warning level based on risk AND confidence
-        # v2.2: Less harsh thresholds to improve recall
+        # Less harsh thresholds to improve recall.
         if risk_score >= 31:
             warning_level = self._warning_level(risk_score, confidence, diversity)
         else:
@@ -153,7 +153,7 @@ class CalibrationEngine:
 
     def _warning_level(self, risk: float, confidence: float, diversity: int) -> WarningLevel:
         """Determine warning level from risk + confidence + diversity."""
-        # v2.2 calibrated thresholds
+        # Calibrated thresholds.
         if risk >= 81 and diversity >= 3:
             return WarningLevel.CRITICAL
         

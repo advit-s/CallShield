@@ -1,13 +1,14 @@
-"""CallShield Deepfake Detection Engine (v2.3).
+"""CallShield Deepfake Detection Engine (v2.3.4).
 
 CNN-based architecture for synthetic speech detection.
 Uses log-mel spectrograms as input.
 """
 
-import os
+import json
 import warnings
+from pathlib import Path
 from typing import Dict, Optional
-from .audio_features import AudioFeatureExtractor, AUDIO_LIBS_AVAILABLE
+from .audio_features import AudioFeatureExtractor, LIBROSA_AVAILABLE
 
 try:
     import torch
@@ -22,6 +23,7 @@ except ImportError:
         class Conv2d: pass
         class BatchNorm2d: pass
         class MaxPool2d: pass
+        class AdaptiveAvgPool2d: pass
         class Dropout: pass
         class Linear: pass
         class Sigmoid: pass
@@ -49,65 +51,123 @@ class DeepFakeCNN(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(128)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.dropout = nn.Dropout(0.3)
-        
-        # Based on 16k SR, 4s duration, 256 hop -> ~251 frames
-        # After 3 pools (2x2): 128x251 -> 64x125 -> 32x62 -> 16x31
-        self.fc1 = nn.Linear(128 * 16 * 31, 256)
-        self.fc2 = nn.Linear(256, 1)
+
+        self.fc1 = nn.Linear(128, 64)
+        self.fc2 = nn.Linear(64, 1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
+    def forward_logits(self, x):
         if not TORCH_AVAILABLE:
             return x
         x = self.pool1(F.relu(self.bn1(self.conv1(x))))
         x = self.pool2(F.relu(self.bn2(self.conv2(x))))
         x = self.pool3(F.relu(self.bn3(self.conv3(x))))
-        
+        x = self.global_pool(x)
         x = torch.flatten(x, 1)
         x = self.dropout(F.relu(self.fc1(x)))
-        x = self.fc2(x)
-        return self.sigmoid(x)
+        return self.fc2(x)
+
+    def forward(self, x):
+        if not TORCH_AVAILABLE:
+            return x
+        return self.sigmoid(self.forward_logits(x))
 
 
 class DeepFakeDetector:
     """Inference engine for deepfake detection."""
 
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: Optional[str] = None, calibration_path: Optional[str] = None):
         self.extractor = AudioFeatureExtractor()
-        
-        if TORCH_AVAILABLE:
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model = DeepFakeCNN().to(self.device)
-            self.model_status = "uninitialized"
-            
-            if model_path and os.path.exists(model_path):
-                try:
-                    self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-                    self.model.eval()
-                    self.model_status = "loaded"
-                except Exception as e:
-                    warnings.warn(f"Failed to load deepfake model: {e}")
-            else:
+        self.checkpoint_path = Path(model_path) if model_path else self._default_checkpoint_path()
+        self.calibration_path = Path(calibration_path) if calibration_path else self._calibration_path_for_checkpoint(self.checkpoint_path)
+        self.model = None
+        self.model_status = "pipeline_implemented_no_trained_model"
+        self.calibration_status = "uncalibrated"
+        self.operating_threshold = 0.5
+        self.target_fpr = None
+        self.calibration_note = "No calibrated threshold file found."
+        self.device = "cpu"
+
+        if not self.checkpoint_path.exists():
+            if TORCH_AVAILABLE:
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.model = DeepFakeCNN().to(self.device)
                 self.model.eval()
-                self.model_status = "placeholder"
-        else:
-            self.model = None
-            self.model_status = "unavailable"
-            self.device = "cpu"
+            return
+
+        if not TORCH_AVAILABLE:
+            self.model_status = "audio_libraries_unavailable"
+            return
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = DeepFakeCNN().to(self.device)
+        try:
+            checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
+            state_dict = checkpoint.get("model_state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+            self.model.load_state_dict(state_dict)
+            self.model.eval()
+            self._load_calibration()
+            self.model_status = "trained_model_loaded"
+        except Exception as e:
+            warnings.warn(f"Failed to load deepfake model: {e}")
+            self.model_status = "checkpoint_load_failed"
+
+    @staticmethod
+    def _default_checkpoint_path() -> Path:
+        return Path(__file__).resolve().parents[2] / "models" / "deepfake_mel_cnn.pt"
+
+    @staticmethod
+    def _default_calibration_path() -> Path:
+        return Path(__file__).resolve().parents[2] / "models" / "deepfake_calibration.json"
+
+    def _calibration_path_for_checkpoint(self, checkpoint_path: Path) -> Path:
+        sidecar = checkpoint_path.with_name(f"{checkpoint_path.stem}_calibration.json")
+        if sidecar.exists():
+            return sidecar
+        return self._default_calibration_path()
+
+    def _load_calibration(self) -> None:
+        if not self.calibration_path.exists():
+            return
+        try:
+            with self.calibration_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.operating_threshold = float(data.get("operating_threshold", self.operating_threshold))
+            self.target_fpr = data.get("target_fpr")
+            self.calibration_status = data.get("status", "calibrated")
+            self.calibration_note = data.get("note", "Calibrated threshold loaded.")
+        except Exception as e:
+            warnings.warn(f"Failed to load deepfake calibration: {e}")
+            self.calibration_status = "calibration_load_failed"
 
     def detect(self, audio_path: str) -> Dict:
         """
         Analyze audio for deepfake indicators.
         Returns score (0-1) and confidence.
         """
-        if not TORCH_AVAILABLE or not AUDIO_LIBS_AVAILABLE:
+        if self.model_status != "trained_model_loaded":
             return {
-                "deepfake_score": 0.05,  # Baseline safe score
-                "confidence": "none",
-                "model_status": "unavailable",
-                "note": "Audio ML libraries (torch/librosa) missing."
+                "deepfake_score": None,
+                "confidence": "unavailable",
+                "model_status": self.model_status,
+                "used_in_fusion": False,
+                "model_name": "log_mel_cnn_v1",
+                "checkpoint_path": str(self.checkpoint_path),
+                "calibration_status": self.calibration_status,
+                "operating_threshold": self.operating_threshold,
+                "note": "Deepfake pipeline implemented, trained model pending."
+            }
+
+        if not TORCH_AVAILABLE or not LIBROSA_AVAILABLE or self.model is None:
+            return {
+                "deepfake_score": None,
+                "confidence": "unavailable",
+                "model_status": "audio_libraries_unavailable",
+                "used_in_fusion": False,
+                "note": "Audio ML libraries missing. Install torch and librosa for audio inference."
             }
 
         try:
@@ -118,23 +178,31 @@ class DeepFakeDetector:
             
             with torch.no_grad():
                 score = self.model(input_tensor).item()
-            
-            # Simple confidence heuristic based on score extremity
-            confidence = "high" if abs(score - 0.5) > 0.35 else "medium"
-            if self.model_status == "placeholder":
-                score = 0.05 
-                confidence = "low"
+
+            is_deepfake = score >= self.operating_threshold
+            fusion_score = score if is_deepfake else 0.0
+            distance = abs(score - self.operating_threshold)
+            confidence = "high" if distance > 0.20 else "medium" if distance > 0.05 else "low"
 
             return {
                 "deepfake_score": round(score, 3),
+                "raw_deepfake_score": round(score, 3),
+                "fusion_deepfake_score": round(fusion_score, 3),
+                "operating_threshold": round(self.operating_threshold, 4),
+                "calibrated_decision": "synthetic" if is_deepfake else "not_synthetic",
                 "confidence": confidence,
                 "model_status": self.model_status,
+                "calibration_status": self.calibration_status,
+                "target_fpr": self.target_fpr,
+                "used_in_fusion": True,
                 "model_name": "log_mel_cnn_v1"
             }
         except Exception as e:
             warnings.warn(f"Deepfake detection failed: {e}")
             return {
-                "deepfake_score": 0.0,
-                "confidence": "none",
+                "deepfake_score": None,
+                "confidence": "unavailable",
+                "model_status": "inference_failed",
+                "used_in_fusion": False,
                 "error": str(e)
             }

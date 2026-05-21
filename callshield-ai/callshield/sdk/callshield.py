@@ -1,4 +1,4 @@
-"""CallShield Python SDK v2.1 (Trust & Calibration).
+"""CallShield Python SDK v2.3.4 (Deepfake Calibration Patch).
 
 B2B-ready SDK with confidence levels, two-tier warnings,
 and challenge-response verification.
@@ -23,7 +23,7 @@ from callshield.engine.deepfake import DeepFakeDetector
 
 @dataclass
 class CallShieldResult:
-    """SDK result object with v2.3 confidence and calibration."""
+    """SDK result object with v2.3.3 confidence and calibration."""
     risk_score: float = 0.0
     risk_band: str = "safe"
     confidence: str = "very_low"
@@ -42,18 +42,7 @@ class CallShieldResult:
 
 
 class CallShieldSDK:
-    """v2.3 SDK - Audio Intelligence Release."""
-
-    MODEL_STATUS = {
-        "scam_nlp": "implemented",
-        "fusion": "implemented",
-        "calibration": "implemented",
-        "challenge": "implemented",
-        "privacy": "implemented",
-        "asr": "implemented",
-        "deepfake": "implemented",
-        "speaker_verification": "placeholder",
-    }
+    """v2.3.4 SDK - Deepfake Calibration Patch."""
 
     def __init__(self, 
                  custom_weights: Optional[Dict[str, float]] = None,
@@ -64,23 +53,50 @@ class CallShieldSDK:
         self.challenge = ChallengeGenerator()
         self.privacy = PrivacyLayer()
         self.deepfake_detector = DeepFakeDetector(model_path=deepfake_model_path)
+        self.asr_available = self._is_asr_available()
+
+    def _is_asr_available(self) -> bool:
+        """Return whether the optional Whisper ASR dependency is importable."""
+        try:
+            from callshield.engine.asr import whisper
+        except Exception:
+            return False
+        return whisper is not None
+
+    def get_model_status(self) -> Dict[str, str]:
+        """Return live module status without overstating untrained models."""
+        return {
+            "scam_nlp": "implemented",
+            "fusion": "implemented",
+            "calibration": "implemented",
+            "challenge": "implemented",
+            "privacy": "implemented",
+            "asr": "available" if self.asr_available else "unavailable",
+            "deepfake": self.deepfake_detector.model_status,
+            "speaker_verification": "placeholder",
+        }
 
     def analyze_audio(self, audio_path: str, transcript: str, 
                       speaker_id: Optional[str] = None) -> CallShieldResult:
         """Perform combined audio and text analysis."""
         # 1. Run deepfake detection
         audio_result = self.deepfake_detector.detect(audio_path)
+        deepfake_score = (
+            audio_result.get("fusion_deepfake_score", audio_result.get("deepfake_score"))
+            if audio_result.get("used_in_fusion") and audio_result.get("deepfake_score") is not None
+            else 0.0
+        )
         
         # 2. Run standard analysis with audio signal
         result = self.analyze_transcript(
             text=transcript,
             speaker_id=speaker_id,
-            audio_deepfake_score=audio_result.get("deepfake_score", 0.0)
+            audio_deepfake_score=deepfake_score
         )
         
         # 3. Inject audio analysis details
         result.audio_analysis = audio_result
-        if audio_result.get("deepfake_score", 0) > 0.6:
+        if audio_result.get("used_in_fusion") and (audio_result.get("fusion_deepfake_score") or 0.0) > 0.6:
             result.why_flagged += " Possible synthetic or cloned voice detected."
             
         return result
@@ -94,7 +110,7 @@ class CallShieldSDK:
         analysis = self.scam_engine.analyze(text)
 
         # 2. Build signal scores
-        # v2.2: More aggressive rule bonus for strong scam indicators
+        # More aggressive rule bonus for strong scam indicators.
         bonus = min(len(analysis.detected_cues) * 0.05, 0.25)
         if analysis.scam_score > 0.8:
             bonus += 0.15  # Extra boost for high-confidence language matches
@@ -151,7 +167,7 @@ class CallShieldSDK:
             explanation=calibrated.explanation,
             recommended_action=calibrated.action,
             why_flagged=why,
-            model_status=self.MODEL_STATUS,
+            model_status=self.get_model_status(),
             raw_components=result.raw_components,
             challenges=[
                 {"question": c.question, "why": c.why, "type": c.expected_type}

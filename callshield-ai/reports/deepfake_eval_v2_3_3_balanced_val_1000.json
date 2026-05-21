@@ -1,0 +1,31 @@
+{
+  "version": "2.3.3",
+  "report_type": "deepfake_audio_eval",
+  "created_at": "2026-05-20T11:07:31.544354",
+  "checkpoint": "models\\deepfake_mel_cnn.pt",
+  "test_csv": "data\\deepfake\\val.csv",
+  "limit": 500,
+  "files": 500,
+  "metrics": {
+    "accuracy": 0.742,
+    "precision": 0.6983606557377049,
+    "recall": 0.852,
+    "f1": 0.7675675675675675,
+    "false_positive_rate": 0.368,
+    "false_negative_rate": 0.148,
+    "eer": 0.216,
+    "confusion_matrix": {
+      "tp": 213,
+      "tn": 158,
+      "fp": 92,
+      "fn": 37
+    },
+    "true_positives": 213,
+    "true_negatives": 158,
+    "false_positives": 92,
+    "false_negatives": 37,
+    "roc_auc": 0.850768,
+    "loss": 0.5472776679992676
+  },
+  "note": "Deepfake CNN metrics are separate from scam NLP conversation-risk metrics."
+}

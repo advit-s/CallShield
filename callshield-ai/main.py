@@ -26,7 +26,7 @@ def run_server():
     port = int(os.getenv("PORT", "8000"))
 
     print(f"\n{'='*60}")
-    print(f"  CallShield AI v2.1 - Server")
+    print(f"  CallShield AI v2.3.4 - Server")
     print(f"  API: http://{host}:{port}")
     print(f"  Dashboard: http://{host}:{port}/demo")
     print(f"{'='*60}\n")
@@ -46,7 +46,7 @@ def run_sdk_demo():
     print(f"  CallShield SDK Demo")
     print(f"{'='*60}\n")
 
-    from callshield.sdk.callshield import CallShieldSDK
+    from callshield.sdk import CallShieldSDK
 
     sdk = CallShieldSDK()
 

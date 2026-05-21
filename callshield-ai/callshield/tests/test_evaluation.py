@@ -11,6 +11,9 @@ import sys
 import os
 from typing import Dict, List, Tuple
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from sdk.callshield import CallShieldSDK
@@ -44,7 +47,7 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
     }
 
     print(f"{'='*70}")
-    print(f"  CallShield AI - Evaluation Report v2.2")
+    print(f"  CallShield AI - Evaluation Report v2.3.4")
     print(f"  Testing {len(NORMAL_SCENARIOS)} normal + {len(SCAM_SCENARIOS)} scam scenarios")
     print(f"{'='*70}")
     print()
@@ -139,7 +142,7 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
 
     # Print report
     print(f"\n{'='*70}")
-    print(f"  EVALUATION RESULTS (v2.2)")
+    print(f"  EVALUATION RESULTS (v2.3.4)")
     print(f"{'='*70}")
     print(f"\n  Raw Detection (Risk Band >= Suspicious):")
     print(f"    Recall:              {recall:.1%} (Target: 85%+)")

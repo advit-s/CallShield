@@ -1,4 +1,4 @@
-"""CallShield API Endpoint Tests (v2.1).
+"""CallShield API Endpoint Tests.
 
 Tests all endpoints for:
 - /analyze-transcript          (text-based scam detection)
@@ -22,7 +22,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..")
 )
 
-from callshield.api.server import app
+from callshield.api.server import app, APP_VERSION
 
 client = TestClient(app)
 
@@ -34,9 +34,9 @@ def test_health():
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["version"] == "2.1.0"
+    assert data["version"] == APP_VERSION
     assert data["models_loaded"]["scam_nlp"] is True
-    assert data["models_loaded"]["deepfake"] is False  # placeholder
+    assert isinstance(data["models_loaded"]["deepfake"], bool)
 
 
 def test_model_status():
@@ -45,9 +45,14 @@ def test_model_status():
     assert resp.status_code == 200
     data = resp.json()
     assert "modules" in data
-    assert data["version"] == "2.1.0"
+    assert data["version"] == APP_VERSION
     assert data["modules"]["scam_nlp"]["status"] == "implemented"
-    assert data["modules"]["deepfake"]["status"] == "placeholder"
+    assert data["modules"]["deepfake"]["status"] in {
+        "pipeline_implemented_no_trained_model",
+        "trained_model_loaded",
+        "audio_libraries_unavailable",
+        "checkpoint_load_failed",
+    }
     assert "description" in data["modules"]["scam_nlp"]
 
 
@@ -78,12 +83,12 @@ def test_analyze_transcript_scam():
     data = resp.json()
     assert data["risk_score"] > 30
     assert data["detected_cues"]  # should have cues
-    assert data["why_flagged"]     # v2.1: explainable
-    assert "challenges" in data     # v2.1: challenge-response
+    assert data["why_flagged"]     # explainable
+    assert "challenges" in data     # challenge-response
 
 
 def test_analyze_transcript_confidence_fields():
-    """POST /analyze-transcript -- must include v2.1 confidence fields."""
+    """POST /analyze-transcript -- must include confidence fields."""
     resp = client.post("/analyze-transcript", json={
         "call_id": "test-conf-001",
         "transcript": "Send money right now, it is urgent. Do not tell anyone."
