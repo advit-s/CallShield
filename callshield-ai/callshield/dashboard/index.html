@@ -497,12 +497,12 @@
             const el = $('why-flagged');
             if (risk < 31) {
                 el.style.color = 'var(--text-muted)';
-                el.innerHTML = 'No scam signals detected. The call appears normal.';
+                el.textContent = 'No scam signals detected. The call appears normal.';
                 $('detected-cues').style.display = 'none';
                 return;
             }
             el.style.color = risk >= 61 ? 'var(--danger)' : 'var(--warn)';
-            el.innerHTML = whyText;
+            el.textContent = whyText;
             $('detected-cues').style.display = 'block';
         }
 
@@ -527,7 +527,11 @@
                     const p = document.createElement('div');
                     p.style.marginBottom = '8px';
                     const sp = line.speaker === "Mom" || line.speaker === "Vendor" ? line.speaker : "Caller";
-                    p.innerHTML = `<span class="transcript-speaker">${sp}:</span> ${line.text}`;
+                    const speaker = document.createElement('span');
+                    speaker.className = 'transcript-speaker';
+                    speaker.textContent = `${sp}:`;
+                    p.appendChild(speaker);
+                    p.appendChild(document.createTextNode(` ${line.text}`));
                     $('transcript').appendChild(p);
                     $('transcript').scrollTop = $('transcript').scrollHeight;
                     updateBar('scam', line.scam, line.scam);
@@ -535,7 +539,7 @@
                     updateBar('id', line.id, line.id);
                     updateBar('urgency', line.urgency, line.urgency);
 
-                    const risk = 0.35*line.scam + 0.25*line.df + 0.20*line.id + 0.10*line.urgency;
+                    const risk = 0.45*line.scam + 0.20*line.df + 0.15*line.id + 0.10*line.urgency;
                     maxRisk = Math.max(maxRisk, risk * 100);
                     if (line.scam > 0.5) maxRisk = Math.min(100, maxRisk + 10);
                     if (line.df > 0.5) maxRisk = Math.min(100, maxRisk + 10);
@@ -596,11 +600,27 @@
                 Object.entries(data.modules || {}).forEach(([name, info]) => {
                     const row = document.createElement('div');
                     row.className = 'status-row';
-                    row.innerHTML = `<span>${name.replaceAll('_', ' ')}</span><span class="status-chip ${statusChipClass(info.status)}">${info.status}</span>`;
+                    const label = document.createElement('span');
+                    label.textContent = name.replaceAll('_', ' ');
+                    const chip = document.createElement('span');
+                    chip.className = `status-chip ${statusChipClass(info.status)}`;
+                    chip.textContent = info.status;
+                    row.appendChild(label);
+                    row.appendChild(chip);
                     list.appendChild(row);
                 });
             } catch (err) {
-                list.innerHTML = '<div class="status-row"><span>API offline</span><span class="status-chip chip-off">unavailable</span></div>';
+                list.innerHTML = '';
+                const row = document.createElement('div');
+                row.className = 'status-row';
+                const label = document.createElement('span');
+                label.textContent = 'API offline';
+                const chip = document.createElement('span');
+                chip.className = 'status-chip chip-off';
+                chip.textContent = 'unavailable';
+                row.appendChild(label);
+                row.appendChild(chip);
+                list.appendChild(row);
             }
         }
 
@@ -690,7 +710,11 @@
             $('btn-end').style.display = 'none';
             $('btn-simulate').disabled = true;
             $('scenario-bar').style.display = 'none';
-            $('transcript').innerHTML = '<div style="color:var(--text-muted)">Call ended.</div>';
+            $('transcript').innerHTML = '';
+            const ended = document.createElement('div');
+            ended.style.color = 'var(--text-muted)';
+            ended.textContent = 'Call ended.';
+            $('transcript').appendChild(ended);
             setAction('No call in progress', 'Accept a call to see real-time analysis.');
             hideAlert();
             clearCues();

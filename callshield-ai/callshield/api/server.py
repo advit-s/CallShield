@@ -1,4 +1,4 @@
-"""CallShield API Server v2.3.4 - Deepfake Calibration Patch.
+"""CallShield API Server v2.3.5 - Evaluation Hygiene & Model Selection.
 
 Endpoints:
   POST /analyze-transcript       Analyze text with confidence & calibration
@@ -20,14 +20,13 @@ Privacy: No raw audio stored. Transcripts stored only if STORE_TRANSCRIPTS=true.
 import os
 import time
 import tempfile
-import hashlib
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request, status
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, status, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Use proper package imports (not sys.path hacks)
@@ -45,10 +44,33 @@ from callshield.api.schemas import (
 CALL_HISTORY: Dict[str, Dict] = {}    # call_id -> call data
 FEEDBACK_STORE: Dict[str, Dict] = {}  # call_id -> user feedback
 START_TIME = time.time()
-APP_VERSION = "2.3.4"
-APP_TITLE = "CallShield AI v2.3.4"
-APP_RELEASE = "Deepfake Calibration Patch"
+APP_VERSION = "2.3.5"
+APP_TITLE = "CallShield AI v2.3.5"
+APP_RELEASE = "Deepfake Evaluation Hardening"
 DEBUG_MODE = os.environ.get("CALLSHIELD_DEBUG", "false").lower() == "true"
+MAX_AUDIO_UPLOAD_BYTES = int(os.environ.get("CALLSHIELD_MAX_AUDIO_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+ALLOWED_AUDIO_CONTENT_TYPES = {
+    "audio/wav",
+    "audio/wave",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/flac",
+    "audio/webm",
+    "application/octet-stream",
+}
+ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac"}
+
+
+def _cors_origins() -> List[str]:
+    raw = os.environ.get(
+        "CALLSHIELD_CORS_ORIGINS",
+        "http://localhost:8000,http://127.0.0.1:8000,http://localhost:8010,http://127.0.0.1:8010",
+    )
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return origins or ["http://localhost:8000"]
 
 
 class TimingMiddleware(BaseHTTPMiddleware):
@@ -72,8 +94,8 @@ app = FastAPI(
 app.add_middleware(TimingMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins(),
+    allow_credentials=os.environ.get("CALLSHIELD_CORS_CREDENTIALS", "false").lower() == "true",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -84,6 +106,86 @@ privacy = PrivacyLayer()
 
 def _elapsed() -> int:
     return int(time.time() - START_TIME)
+
+
+_ASR_INSTANCE = None
+
+
+def _env_true(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+def _get_asr():
+    """Lazy-load Whisper once instead of reloading it for every upload."""
+    global _ASR_INSTANCE
+    if _ASR_INSTANCE is None:
+        from callshield.engine.asr import (
+            ASRTranscriber,
+            DEFAULT_HF_ASR_MODEL,
+            resolve_hf_asr_model,
+        )
+        backend = os.environ.get("CALLSHIELD_ASR_BACKEND", "openai_whisper")
+        if backend == "huggingface":
+            requested_model = os.environ.get("CALLSHIELD_HF_ASR_MODEL", DEFAULT_HF_ASR_MODEL)
+            model_name = resolve_hf_asr_model(
+                model_name=requested_model,
+                local_dir=os.environ.get("CALLSHIELD_HF_ASR_LOCAL_DIR"),
+                prefer_local=_env_true("CALLSHIELD_HF_ASR_PREFER_LOCAL", "true"),
+            )
+            local_files_only = _env_true("CALLSHIELD_ASR_OFFLINE") or Path(model_name).exists()
+        else:
+            model_name = os.environ.get("CALLSHIELD_WHISPER_MODEL", "base")
+            local_files_only = False
+        _ASR_INSTANCE = ASRTranscriber(
+            model_name=model_name,
+            backend=backend,
+            local_files_only=local_files_only,
+        )
+    return _ASR_INSTANCE
+
+
+def _validate_audio_upload(audio: UploadFile) -> str:
+    suffix = Path(audio.filename or "").suffix.lower()
+    content_type = (audio.content_type or "").lower()
+    if suffix not in ALLOWED_AUDIO_EXTENSIONS and content_type not in ALLOWED_AUDIO_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio upload type. Use wav, mp3, m4a, ogg, flac, webm, or aac.",
+        )
+    return suffix if suffix in ALLOWED_AUDIO_EXTENSIONS else ".wav"
+
+
+def _spectrogram_preview(audio_path: str) -> Dict[str, Any]:
+    """Build a transient log-mel spectrogram preview for live mobile debugging."""
+    try:
+        from callshield.engine.audio_features import AudioFeatureExtractor
+
+        extractor = AudioFeatureExtractor()
+        waveform = extractor.load_audio(audio_path)
+        return extractor.spectrogram_preview(waveform)
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": str(exc),
+        }
+
+
+async def _read_audio_upload(audio: UploadFile) -> bytes:
+    payload = await audio.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Audio upload is empty")
+    if len(payload) > MAX_AUDIO_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Audio upload exceeds size limit")
+    return payload
+
+
+def require_admin_key(x_admin_api_key: Optional[str] = Header(None, alias="X-Admin-API-Key")) -> None:
+    """Require an admin key for destructive demo-memory data deletion endpoints."""
+    expected = os.environ.get("CALLSHIELD_ADMIN_KEY")
+    if os.environ.get("CALLSHIELD_DEMO_MODE", "false").lower() == "true":
+        return
+    if not expected or x_admin_api_key != expected:
+        raise HTTPException(status_code=401, detail="Admin API key required")
 
 
 # === System ===
@@ -152,13 +254,17 @@ async def model_status():
             },
             "asr": {
                 "status": status["asr"],
-                "description": "ASR via OpenAI Whisper (support for EN/HI)"
+                "description": "ASR via OpenAI Whisper or offline Hugging Face snapshot",
+                "backend": os.environ.get("CALLSHIELD_ASR_BACKEND", "openai_whisper"),
+                "offline": str(_env_true("CALLSHIELD_ASR_OFFLINE")).lower(),
             },
             "deepfake": {
                 "status": status["deepfake"],
                 "description": "Log-mel CNN with calibrated fusion threshold",
                 "calibration_status": sdk.deepfake_detector.calibration_status,
                 "operating_threshold": str(round(sdk.deepfake_detector.operating_threshold, 4)),
+                "soft_audio_threshold": str(round(sdk.deepfake_detector.soft_audio_threshold, 4)),
+                "hard_audio_threshold": str(round(sdk.deepfake_detector.hard_audio_threshold, 4)),
                 "target_fpr": str(sdk.deepfake_detector.target_fpr),
             },
             "speaker_verification": {
@@ -205,12 +311,12 @@ async def analyze_transcript(req: TranscriptRequest):
         )
 
         # Store in call history (with user_id if provided)
-        store_call(req.call_id, req.user_id, response.dict())
+        store_call(req.call_id, req.user_id, response.model_dump())
 
         return response
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Analysis failed")
 
 
 @app.post("/analyze-audio", tags=["Analysis"], response_model=RiskResult)
@@ -226,21 +332,32 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
     3. Run /analyze-transcript pipeline on the transcript.
     4. Delete temporary file in a finally block.
     """
-    from callshield.engine.asr import ASRTranscriber
-
     temp_path = None
     start = time.time()
 
     try:
+        suffix = _validate_audio_upload(audio)
+        payload = await _read_audio_upload(audio)
+
         # Save audio to temporary file (not permanent storage)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(await audio.read())
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(payload)
             temp_path = f.name
 
         # Transcribe with Whisper
-        asr = ASRTranscriber(model_name="base")  # Lightweight for API
-        asr_result = asr.transcribe(temp_path)
+        asr_result = _get_asr().transcribe(temp_path)
+        spectrogram = _spectrogram_preview(temp_path)
         transcript = asr_result.get("text", "")
+        asr_debug = {
+            "transcript": transcript,
+            "language": asr_result.get("language"),
+            "status": asr_result.get("status", "unknown"),
+            "error": asr_result.get("error"),
+            "confidence": asr_result.get("confidence", 0.0),
+            "activity": asr_result.get("activity"),
+            "segment_count": len(asr_result.get("segments", [])),
+            "heard_speech": bool(transcript.strip()),
+        }
 
         # Run analysis on the audio and transcript
         result = sdk.analyze_audio(
@@ -259,25 +376,34 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             scam_type=result.scam_type,
             scam_type_confidence=result.scam_type_confidence,
             detected_cues=result.detected_cues,
-            explanation=result.explanation + f" [Transcript: {transcript[:100]}]",
+            explanation=(
+                result.explanation + f" [Transcript: {transcript[:100]}]"
+                if os.environ.get("INCLUDE_TRANSCRIPT_PREVIEW", "false").lower() == "true" and transcript
+                else result.explanation
+            ),
             recommended_action=result.recommended_action,
             why_flagged=result.why_flagged,
             challenges=[{"question": c["question"], "why": c["why"]}
                         for c in result.challenges],
             raw_components={
                 **result.raw_components,
-                "audio": result.audio_analysis
+                "audio": result.audio_analysis,
+                "asr": asr_debug,
+                "spectrogram": spectrogram,
+                "transcript": transcript,
             },
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
             timestamp=datetime.now().isoformat()
         )
 
-        store_call(call_id, user_id, response.dict(), transcript=transcript)
+        store_call(call_id, user_id, response.model_dump(), transcript=transcript)
         return response
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Audio analysis failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Audio analysis failed")
 
     finally:
         # Always delete temp file, even if analysis fails
@@ -311,9 +437,7 @@ async def score_call(req: ScoreCallRequest):
             if not os.path.exists(req.audio_path):
                 raise HTTPException(status_code=404, detail="Audio file not found")
 
-            from callshield.engine.asr import ASRTranscriber
-            asr = ASRTranscriber(model_name="base")
-            asr_result = asr.transcribe(req.audio_path)
+            asr_result = _get_asr().transcribe(req.audio_path)
             req.transcript = asr_result.get("text", "")
 
         # Run analysis
@@ -344,15 +468,15 @@ async def score_call(req: ScoreCallRequest):
             timestamp=datetime.now().isoformat()
         )
 
-        store_call(req.call_id, req.user_id, response.dict(),
+        store_call(req.call_id, req.user_id, response.model_dump(),
                    transcript=req.transcript if req.transcript else None)
 
         return response
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scoring failed: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Scoring failed")
 
 
 # === Challenge ===
@@ -384,10 +508,10 @@ async def verify_speaker(req: SpeakerRequest):
                    "India's DPDP Act, 2023 and similar privacy regulations."
         )
     return SpeakerResponse(
-        status="enrolled",
+        status="consent_recorded",
         speaker_id=req.speaker_id,
         name=req.name,
-        embedding_stored=True
+        embedding_stored=False
     )
 
 
@@ -426,7 +550,11 @@ async def submit_feedback(req: FeedbackRequest):
 # === Data Management ===
 
 @app.delete("/call-summary/{call_id}", tags=["Data Management"])
-async def delete_call_summary(call_id: str, user_id: Optional[str] = None):
+async def delete_call_summary(
+    call_id: str,
+    user_id: Optional[str] = None,
+    _: None = Depends(require_admin_key),
+):
     """Permanently delete a call summary (Right to Erasure for a specific call)."""
     if call_id not in CALL_HISTORY:
         raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found")
@@ -447,7 +575,7 @@ async def delete_call_summary(call_id: str, user_id: Optional[str] = None):
 
 
 @app.delete("/user-data/{user_id}", tags=["Data Management"])
-async def delete_user_data(user_id: str):
+async def delete_user_data(user_id: str, _: None = Depends(require_admin_key)):
     """
     Delete ALL data associated with a user (Right to Erasure under DPDP Act).
 

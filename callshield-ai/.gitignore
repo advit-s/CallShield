@@ -131,3 +131,46 @@ data/*.csv
 *.mp4
 *.flac
 web/static/uploads/
+
+# Local ML datasets and generated CSV splits
+data/deepfake*/
+data/deepfake_*/
+data/**/train.csv
+data/**/val.csv
+data/**/test.csv
+
+# Model binaries and downloaded Hugging Face caches
+models/hf_cache/
+models/hf_asr/
+models/*.pt
+models/*.pth
+models/*.ckpt
+models/*.onnx
+models/*.safetensors
+models/**/*.bin
+models/**/*.msgpack
+models/**/*.h5
+models/**/*.tflite
+
+# Keep lightweight model metadata trackable
+!models/model_manifest.json
+!models/*calibration*.json
+
+# Generated audio and mobile debug captures
+samples/
+captures/
+recordings/
+
+# Generated evaluation scratch files
+reports/*.csv
+reports/*_tmp.json
+reports/*_scratch.json
+reports/hf_synthetic_*.json
+
+# Android project artifacts nested under this repo
+android/**/.gradle/
+android/**/build/
+android/**/app/build/
+android/**/*.apk
+android/**/*.aab
+android/**/*.iml

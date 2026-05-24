@@ -212,8 +212,9 @@ def test_submit_feedback():
 
 # ============= /delete-call-summary/{id} =============
 
-def test_delete_call_summary():
+def test_delete_call_summary(monkeypatch):
     """DELETE /call-summary/{id} -- should delete a specific call."""
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "test-admin-secret")
     # Create a call
     client.post("/analyze-transcript", json={
         "call_id": "test-delete-001",
@@ -224,7 +225,10 @@ def test_delete_call_summary():
     assert client.get("/call-summary/test-delete-001").status_code == 200
 
     # Delete it
-    resp = client.delete("/call-summary/test-delete-001")
+    resp = client.delete(
+        "/call-summary/test-delete-001",
+        headers={"X-Admin-API-Key": "test-admin-secret"},
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "deleted"
 
@@ -234,8 +238,9 @@ def test_delete_call_summary():
 
 # ============= /delete-user-data/{id} =============
 
-def test_delete_user_data():
+def test_delete_user_data(monkeypatch):
     """DELETE /user-data/{id} -- Right to Erasure under DPDP Act."""
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "test-admin-secret")
     # Create calls for a specific user
     for i in range(3):
         client.post("/analyze-transcript", json={
@@ -253,7 +258,10 @@ def test_delete_user_data():
     })
 
     # Delete user data
-    resp = client.delete("/user-data/user-to-delete")
+    resp = client.delete(
+        "/user-data/user-to-delete",
+        headers={"X-Admin-API-Key": "test-admin-secret"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "purged"
@@ -284,7 +292,8 @@ def test_verify_speaker_with_consent():
         "consent_given": True
     })
     assert resp.status_code == 200
-    assert resp.json()["status"] == "enrolled"
+    assert resp.json()["status"] == "consent_recorded"
+    assert resp.json()["embedding_stored"] is False
 
 
 if __name__ == "__main__":

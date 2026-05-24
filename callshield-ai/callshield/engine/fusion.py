@@ -1,9 +1,9 @@
 """CallShield Risk Fusion Engine.
 
 Product-grade risk scoring combining:
-- 35% scam_language_score
-- 25% deepfake_score
-- 20% identity_mismatch_score
+- 45% scam_language_score
+- 20% deepfake_score
+- 15% identity_mismatch_score
 - 10% urgency_score
 - 10% verification_failure_score
 + rule_bonus
@@ -74,11 +74,11 @@ class RiskFusionEngine:
     """Product-grade risk fusion engine.
 
     Weights (priority order):
-    - Scam language: highest (35%) — intent matters more than voice
-    - Deepfake: 25% — secondary confirmation
-    - Identity mismatch: 20% — trusted profile deviation
-    - Urgency: 10% — behavioral signal
-    - Verification failure: 10% — challenge-response failure
+    - Scam language: highest (45%) - intent matters more than voice
+    - Deepfake: 20% - secondary confirmation
+    - Identity mismatch: 15% - trusted profile deviation
+    - Urgency: 10% - behavioral signal
+    - Verification failure: 10% - challenge-response failure
     - Rule bonus: additive for multiple red flags
     """
 
@@ -115,7 +115,9 @@ class RiskFusionEngine:
 
     def __init__(self, weights: Optional[Dict[str, float]] = None,
                  enable_history: bool = True):
-        self.weights = weights or self.DEFAULT_WEIGHTS.copy()
+        self.weights = self.DEFAULT_WEIGHTS.copy()
+        if weights:
+            self.weights.update(weights)
         self.enable_history = enable_history
         self.history: List[Dict] = [] if enable_history else None  # type: ignore
 
@@ -127,11 +129,11 @@ class RiskFusionEngine:
         verify_penalty = 1.0 if signals.verification_failed else 0.0
 
         raw = (
-            self.weights.get("scam_language", 0.35) * signals.scam_language +
-            self.weights.get("deepfake", 0.25) * signals.deepfake +
-            self.weights.get("identity_mismatch", 0.20) * signals.identity_mismatch +
-            self.weights.get("urgency", 0.10) * signals.urgency +
-            self.weights.get("verification_failure", 0.10) * verify_penalty +
+            self.weights["scam_language"] * signals.scam_language +
+            self.weights["deepfake"] * signals.deepfake +
+            self.weights["identity_mismatch"] * signals.identity_mismatch +
+            self.weights["urgency"] * signals.urgency +
+            self.weights["verification_failure"] * verify_penalty +
             signals.rule_bonus
         )
 
@@ -188,8 +190,10 @@ class RiskFusionEngine:
 
         if signals.scam_language > 0.5:
             reasons.append("scam language")
-        if signals.deepfake > 0.5:
-            reasons.append("synthetic voice")
+        if signals.deepfake >= 0.5:
+            reasons.append("strong synthetic voice signal")
+        elif signals.deepfake > 0:
+            reasons.append("weak synthetic voice signal")
         if signals.identity_mismatch > 0.5:
             reasons.append("voice identity mismatch")
         if signals.urgency > 0.5:
@@ -212,8 +216,10 @@ class RiskFusionEngine:
         cues = []
         if signals.scam_language > 0.5:
             cues.append("Suspicious scam language detected")
-        if signals.deepfake > 0.5:
+        if signals.deepfake >= 0.5:
             cues.append("Synthetic voice detected")
+        elif signals.deepfake > 0:
+            cues.append("Weak synthetic voice signal")
         if signals.identity_mismatch > 0.5:
             cues.append("Voice doesn't match trusted profile")
         if signals.urgency > 0.5:

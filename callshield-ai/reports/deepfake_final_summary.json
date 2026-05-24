@@ -1,0 +1,80 @@
+{
+  "version": "2.3.5",
+  "release": "Deepfake Evaluation Hardening",
+  "canonical_deployed_model": {
+    "checkpoint": "models/deepfake_mel_cnn.pt",
+    "calibration": "models/deepfake_calibration.json",
+    "source_checkpoint": "models/deepfake_mel_cnn_2021_finetuned.pt",
+    "operating_threshold": 0.1978759765625,
+    "soft_audio_threshold": 0.1978759765625,
+    "hard_audio_threshold": 0.5,
+    "target_fpr": 0.1
+  },
+  "scam_nlp": {
+    "recall": 1.0,
+    "false_positive_rate": 0.02,
+    "accuracy": 0.99,
+    "precision": 0.98,
+    "f1": 0.99,
+    "source": "python main.py test"
+  },
+  "deepfake_cnn_internal_2019": {
+    "report": "reports/deepfake_eval_2019_checkpoint_on_2019_test.json",
+    "accuracy": 0.944,
+    "precision": 0.961,
+    "recall": 0.963,
+    "f1": 0.962,
+    "false_positive_rate": 0.104,
+    "roc_auc": 0.983,
+    "eer": 0.056,
+    "note": "ASVspoof 2019-trained checkpoint on ASVspoof 2019 test."
+  },
+  "deepfake_cnn_cross_domain_2019_to_2021": {
+    "report": "reports/deepfake_eval_2019_checkpoint_on_2021_test.json",
+    "accuracy": 0.728,
+    "precision": 0.672,
+    "recall": 0.892,
+    "f1": 0.766,
+    "false_positive_rate": 0.436,
+    "roc_auc": 0.816,
+    "eer": 0.258,
+    "note": "Historical 2019-trained checkpoint tested on ASVspoof 2021; this is the cross-domain generalization warning."
+  },
+  "deepfake_cnn_2021_same_domain": {
+    "report": "reports/deepfake_eval_2021_finetuned_on_2021_test.json",
+    "accuracy": 0.98,
+    "precision": 0.988,
+    "recall": 0.985,
+    "f1": 0.987,
+    "false_positive_rate": 0.039,
+    "roc_auc": 0.998,
+    "eer": 0.021,
+    "note": "ASVspoof 2021 same-domain held-out validation for the fine-tuned deployed checkpoint."
+  },
+  "deepfake_cnn_2021_to_2019_cross_domain": {
+    "report": "reports/deepfake_eval_2021_finetuned_on_2019_test.json",
+    "accuracy": 0.958,
+    "precision": 0.985,
+    "recall": 0.957,
+    "f1": 0.971,
+    "false_positive_rate": 0.039,
+    "roc_auc": 0.992,
+    "eer": 0.042,
+    "note": "Deployed 2021-finetuned checkpoint tested back on ASVspoof 2019."
+  },
+  "deepfake_cnn_2021_balanced": {
+    "report": "reports/deepfake_eval_2021_balanced.json",
+    "accuracy": 0.974,
+    "precision": 0.962,
+    "recall": 0.986,
+    "f1": 0.974,
+    "false_positive_rate": 0.039,
+    "roc_auc": 0.998,
+    "eer": 0.019,
+    "note": "Balanced ASVspoof 2021 evaluation with 2,000 real and 2,000 fake clips."
+  },
+  "combined_callshield": {
+    "reporting_rule": "Report scam NLP and audio deepfake metrics separately; fusion behavior should be evaluated with real transcript-plus-audio samples.",
+    "product_guardrail": "Deepfake high plus scam language low should stay soft; high-risk warnings need scam behavior or multiple corroborating signals."
+  }
+}

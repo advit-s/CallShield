@@ -1,3 +1,40 @@
 /.claude
+
+# Local datasets
 /ASVspoof_2019_LA/
 /ASVspoof_2021_DF/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+htmlcov/
+.coverage
+
+# Local IDE / OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# CallShield generated ML artifacts
+/callshield-ai/models/hf_cache/
+/callshield-ai/models/hf_asr/
+/callshield-ai/models/*.pt
+/callshield-ai/models/*.pth
+/callshield-ai/models/*.ckpt
+/callshield-ai/models/*.onnx
+/callshield-ai/models/*.safetensors
+/callshield-ai/samples/
+/callshield-ai/data/deepfake*/
+/callshield-ai/data/deepfake_*/
+
+# Android generated output
+/callshield-ai/android/CallShieldMobile/.gradle/
+/callshield-ai/android/CallShieldMobile/build/
+/callshield-ai/android/CallShieldMobile/app/build/

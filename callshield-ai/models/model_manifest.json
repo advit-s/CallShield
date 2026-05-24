@@ -1,0 +1,31 @@
+{
+  "version": "2.3.5",
+  "release": "Deepfake Evaluation Hardening",
+  "deployed_checkpoint": "models/deepfake_mel_cnn.pt",
+  "deployed_checkpoint_sha256": "B2BB4D749785D4BF70DAAA3EC018A619982496D41140D40EC408912E1BB3212D",
+  "source_checkpoint": "models/deepfake_mel_cnn_2021_finetuned.pt",
+  "calibration_file": "models/deepfake_calibration.json",
+  "calibration_file_sha256": "662DFC2A678D3C3A83AE80DEEE56529A8C4C7E378307AF084003FC3058B75F7C",
+  "trained_on": "ASVspoof 2019 LA balanced baseline, then fine-tuned on an ASVspoof 2021 DF same-domain held-out split.",
+  "validation_report": "reports/deepfake_eval_2021_finetuned_on_2021_test.json",
+  "external_test_report": "reports/deepfake_eval_2021_finetuned_on_2019_test.json",
+  "internal_2019_report": "reports/deepfake_eval_2019_checkpoint_on_2019_test.json",
+  "cross_domain_summary": "reports/deepfake_cross_domain_summary.json",
+  "operating_threshold": 0.1978759765625,
+  "soft_audio_threshold": 0.1978759765625,
+  "hard_audio_threshold": 0.5,
+  "target_fpr": 0.1,
+  "model_status": "trained_model_loaded",
+  "calibration_status": "calibrated",
+  "official_deployed_model": "models/deepfake_mel_cnn.pt and models/deepfake_calibration.json are the only runtime defaults.",
+  "reporting_notes": [
+    "ASVspoof 2021 fine-tuned metrics are same-domain held-out validation, not external validation.",
+    "2019 to 2021 cross-domain metrics are the honest generalization baseline for a 2019-trained checkpoint.",
+    "Deepfake audio metrics must be reported separately from scam NLP conversation-risk metrics."
+  ],
+  "limitations": [
+    "Not yet validated on real phone-call audio, noisy calls, compressed messaging-app audio, Hindi/Hinglish speech, or unknown public deepfake generators.",
+    "Cross-domain ASVspoof 2019 to 2021 performance shows domain sensitivity.",
+    "The deepfake signal should support fusion but should not trigger high-risk user warnings by itself."
+  ]
+}

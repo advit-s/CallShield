@@ -45,6 +45,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from callshield.engine.audio_features import AudioFeatureExtractor
+from callshield.engine.dataset_paths import resolve_audio_path
 from callshield.engine.deepfake import DeepFakeCNN
 
 
@@ -74,22 +75,26 @@ def limit_rows(rows: List[Tuple[Path, int]], limit: int, seed: int) -> List[Tupl
 class DeepfakeCSVDataset(Dataset):
     """Dataset backed by audio_path,label CSV files."""
 
-    def __init__(self, csv_path: Path, limit: int = None, seed: int = 42):
+    def __init__(
+        self,
+        csv_path: Path,
+        limit: int = None,
+        seed: int = 42,
+        dataset_root: Path = None,
+    ):
         self.csv_path = csv_path
+        self.dataset_root = dataset_root
         self.extractor = AudioFeatureExtractor()
         self.rows = self._load_rows(csv_path)
         if limit is not None:
             self.rows = limit_rows(self.rows, limit, seed)
 
-    @staticmethod
-    def _load_rows(csv_path: Path) -> List[Tuple[Path, int]]:
+    def _load_rows(self, csv_path: Path) -> List[Tuple[Path, int]]:
         rows: List[Tuple[Path, int]] = []
         with csv_path.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                audio_path = Path(row["audio_path"])
-                if not audio_path.is_absolute():
-                    audio_path = (csv_path.parent / audio_path).resolve()
+                audio_path = resolve_audio_path(row["audio_path"], csv_path, self.dataset_root)
                 rows.append((audio_path, int(row["label"])))
         return rows
 
@@ -265,6 +270,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", type=Path, default=Path("data/deepfake"), help="Directory containing train.csv and val.csv")
     parser.add_argument("--train-csv", type=Path, default=None, help="Override train CSV path")
     parser.add_argument("--val-csv", type=Path, default=None, help="Override validation CSV path")
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=None,
+        help="Optional root for relative audio_path values. Also supports CALLSHIELD_DATASET_ROOT.",
+    )
     parser.add_argument("--checkpoint", type=Path, default=Path("models/deepfake_mel_cnn.pt"), help="Output checkpoint path")
     parser.add_argument("--init-checkpoint", type=Path, default=None, help="Optional checkpoint to warm-start/fine-tune from")
     parser.add_argument("--epochs", type=int, default=20)
@@ -301,8 +312,8 @@ def main() -> int:
         print("Missing train.csv or val.csv. Run prepare and validate scripts first.")
         return 1
 
-    train_dataset = DeepfakeCSVDataset(train_csv, limit=args.limit, seed=args.seed)
-    val_dataset = DeepfakeCSVDataset(val_csv, limit=args.limit, seed=args.seed + 1)
+    train_dataset = DeepfakeCSVDataset(train_csv, limit=args.limit, seed=args.seed, dataset_root=args.dataset_root)
+    val_dataset = DeepfakeCSVDataset(val_csv, limit=args.limit, seed=args.seed + 1, dataset_root=args.dataset_root)
     if len(train_dataset) == 0 or len(val_dataset) == 0:
         print("Training and validation CSVs must both contain at least one row.")
         return 1
@@ -389,7 +400,7 @@ def main() -> int:
                 {
                     "model_state_dict": model.state_dict(),
                     "model_name": "log_mel_cnn_v1",
-                    "version": "2.3.4",
+                    "version": "2.3.5",
                     "epoch": epoch,
                     "selection_metric": args.selection_metric,
                     "selection_score": current_score,

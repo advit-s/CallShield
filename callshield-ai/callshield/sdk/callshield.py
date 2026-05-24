@@ -1,4 +1,4 @@
-"""CallShield Python SDK v2.3.4 (Deepfake Calibration Patch).
+"""CallShield Python SDK v2.3.5 (Deepfake Evaluation Hardening).
 
 B2B-ready SDK with confidence levels, two-tier warnings,
 and challenge-response verification.
@@ -23,7 +23,7 @@ from callshield.engine.deepfake import DeepFakeDetector
 
 @dataclass
 class CallShieldResult:
-    """SDK result object with v2.3.3 confidence and calibration."""
+    """SDK result object with confidence and calibration."""
     risk_score: float = 0.0
     risk_band: str = "safe"
     confidence: str = "very_low"
@@ -42,7 +42,7 @@ class CallShieldResult:
 
 
 class CallShieldSDK:
-    """v2.3.4 SDK - Deepfake Calibration Patch."""
+    """v2.3.5 SDK - Deepfake Evaluation Hardening."""
 
     def __init__(self, 
                  custom_weights: Optional[Dict[str, float]] = None,
@@ -81,11 +81,35 @@ class CallShieldSDK:
         """Perform combined audio and text analysis."""
         # 1. Run deepfake detection
         audio_result = self.deepfake_detector.detect(audio_path)
+        text_analysis = self.scam_engine.analyze(transcript or "")
+        audio_can_support_fusion = (
+            bool((transcript or "").strip())
+            and (
+                text_analysis.scam_score >= 0.20
+                or text_analysis.urgency_score > 0.0
+                or bool(text_analysis.detected_cues)
+            )
+        )
         deepfake_score = (
             audio_result.get("fusion_deepfake_score", audio_result.get("deepfake_score"))
-            if audio_result.get("used_in_fusion") and audio_result.get("deepfake_score") is not None
+            if (
+                audio_can_support_fusion
+                and audio_result.get("used_in_fusion")
+                and audio_result.get("deepfake_score") is not None
+            )
             else 0.0
         )
+        if audio_result.get("used_in_fusion") and not audio_can_support_fusion:
+            audio_result = {
+                **audio_result,
+                "fusion_deepfake_score": 0.0,
+                "used_in_fusion": False,
+                "fusion_gate": "held_for_text_corroboration",
+                "note": (
+                    "Deepfake evidence shown but not fused because transcript "
+                    "has no scam-like language or urgency."
+                ),
+            }
         
         # 2. Run standard analysis with audio signal
         result = self.analyze_transcript(
@@ -96,7 +120,7 @@ class CallShieldSDK:
         
         # 3. Inject audio analysis details
         result.audio_analysis = audio_result
-        if audio_result.get("used_in_fusion") and (audio_result.get("fusion_deepfake_score") or 0.0) > 0.6:
+        if audio_result.get("audio_signal_strength") == "strong" and result.risk_band != "safe":
             result.why_flagged += " Possible synthetic or cloned voice detected."
             
         return result
@@ -177,28 +201,40 @@ class CallShieldSDK:
 
     def _explain_why(self, analysis, calibrated) -> str:
         """Build user-facing 'why this was flagged' explanation."""
+        if calibrated.risk_band == "safe":
+            return "No scam signals detected."
+
         cues = analysis.detected_cues[:3]
         if not cues:
             return "No scam signals detected."
 
         lines = []
+        seen = set()
         for cue in cues:
             if "family_emergency" in cue:
-                lines.append("Caller mentions an emergency while calling from a new number.")
+                reason = "Caller mentions an emergency while calling from a new number."
             elif "alternate_number" in cue:
-                lines.append("Caller claims to be calling from an alternate or new phone.")
+                reason = "Caller claims to be calling from an alternate or new phone."
             elif "secrecy" in cue:
-                lines.append("Caller urges you to keep the call secret.")
+                reason = "Caller urges you to keep the call secret."
             elif "upi" in cue or "payment" in cue:
-                lines.append("Caller is asking for money transfer via UPI or similar.")
+                reason = "Caller is asking for money transfer via UPI or similar."
             elif "otp" in cue or "pin" in cue or "cvv" in cue:
-                lines.append("Caller requests sensitive payment credentials.")
+                reason = "Caller requests sensitive payment credentials."
             elif "urgency" in cue:
-                lines.append("Caller creates a sense of urgency to pressure you.")
+                reason = "Caller creates a sense of urgency to pressure you."
             elif "bank" in cue:
-                lines.append("Caller claims to be from a bank and asks for details.")
+                reason = "Caller claims to be from a bank and asks for details."
             elif "police" in cue or "arrest" in cue:
-                lines.append("Caller uses police or legal threats to create fear.")
+                reason = "Caller uses police or legal threats to create fear."
+            elif "remote_access" in cue:
+                reason = "Caller asks for remote access or screen sharing."
+            else:
+                reason = None
+
+            if reason and reason not in seen:
+                lines.append(reason)
+                seen.add(reason)
 
         if not lines:
             lines.append("Multiple suspicious cues detected in the conversation.")

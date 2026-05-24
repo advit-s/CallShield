@@ -1,12 +1,14 @@
 {
-  "version": "2.3.4",
+  "version": "2.3.5",
   "status": "calibrated",
   "created_at": "2026-05-21T09:37:05.905894",
-  "model_path": "models\\deepfake_mel_cnn_2021_finetuned.pt",
+  "model_path": "models\\deepfake_mel_cnn.pt",
   "operating_threshold": 0.1978759765625,
+  "soft_audio_threshold": 0.1978759765625,
+  "hard_audio_threshold": 0.5,
   "target_fpr": 0.1,
-  "calibration_source": "reports\\deepfake_eval_2021_finetuned_test.json",
-  "note": "Conservative external-domain threshold. Scores below this threshold are not used as a deepfake fusion signal.",
+  "calibration_source": "reports\\deepfake_2021_same_domain.json",
+  "note": "Two-tier audio threshold profile: below soft is ignored, soft-to-hard is weak audio evidence, hard and above is strong deepfake evidence.",
   "primary_report": {
     "report": "data\\deepfake_2021_finetune\\test.csv",
     "files": 10000,

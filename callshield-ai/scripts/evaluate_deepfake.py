@@ -45,15 +45,41 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from callshield.engine.audio_features import AudioFeatureExtractor
+from callshield.engine.dataset_paths import resolve_audio_path
 from callshield.engine.deepfake import DeepFakeCNN
 
 
-def limit_rows(rows: List[Tuple[Path, int]], limit: int, seed: int = 42) -> List[Tuple[Path, int]]:
-    if limit <= 0 or len(rows) <= limit:
+def select_rows(
+    rows: List[Tuple[Path, int]],
+    limit: int = None,
+    seed: int = 42,
+    balanced: bool = False,
+    limit_real: int = None,
+    limit_fake: int = None,
+) -> List[Tuple[Path, int]]:
+    rng = random.Random(seed)
+    if balanced:
+        real = [row for row in rows if row[1] == 0]
+        fake = [row for row in rows if row[1] == 1]
+        rng.shuffle(real)
+        rng.shuffle(fake)
+
+        if limit_real is None and limit_fake is None:
+            per_class = min(len(real), len(fake), (limit // 2) if limit else max(len(real), len(fake)))
+            limit_real = per_class
+            limit_fake = per_class
+        elif limit is not None:
+            limit_real = limit_real if limit_real is not None else limit // 2
+            limit_fake = limit_fake if limit_fake is not None else limit - limit_real
+
+        selected = real[:limit_real] + fake[:limit_fake]
+        rng.shuffle(selected)
+        return selected
+
+    if limit is None or limit <= 0 or len(rows) <= limit:
         return rows
     real = [row for row in rows if row[1] == 0]
     fake = [row for row in rows if row[1] == 1]
-    rng = random.Random(seed)
     rng.shuffle(real)
     rng.shuffle(fake)
     if real and fake:
@@ -68,22 +94,36 @@ def limit_rows(rows: List[Tuple[Path, int]], limit: int, seed: int = 42) -> List
 
 
 class DeepfakeCSVDataset(Dataset):
-    def __init__(self, csv_path: Path, limit: int = None):
+    def __init__(
+        self,
+        csv_path: Path,
+        limit: int = None,
+        dataset_root: Path = None,
+        balanced: bool = False,
+        limit_real: int = None,
+        limit_fake: int = None,
+        seed: int = 42,
+    ):
         self.csv_path = csv_path
+        self.dataset_root = dataset_root
         self.extractor = AudioFeatureExtractor()
         self.rows = self._load_rows(csv_path)
-        if limit is not None:
-            self.rows = limit_rows(self.rows, limit)
+        if limit is not None or balanced or limit_real is not None or limit_fake is not None:
+            self.rows = select_rows(
+                self.rows,
+                limit=limit,
+                balanced=balanced,
+                limit_real=limit_real,
+                limit_fake=limit_fake,
+                seed=seed,
+            )
 
-    @staticmethod
-    def _load_rows(csv_path: Path) -> List[Tuple[Path, int]]:
+    def _load_rows(self, csv_path: Path) -> List[Tuple[Path, int]]:
         rows: List[Tuple[Path, int]] = []
         with csv_path.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                audio_path = Path(row["audio_path"])
-                if not audio_path.is_absolute():
-                    audio_path = (csv_path.parent / audio_path).resolve()
+                audio_path = resolve_audio_path(row["audio_path"], csv_path, self.dataset_root)
                 rows.append((audio_path, int(row["label"])))
         return rows
 
@@ -242,10 +282,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate CallShield deepfake CNN checkpoint.")
     parser.add_argument("--checkpoint", type=Path, default=Path("models/deepfake_mel_cnn.pt"))
     parser.add_argument("--test", type=Path, default=Path("data/deepfake/test.csv"), help="Test CSV path")
-    parser.add_argument("--out-json", type=Path, default=Path("reports/deepfake_eval_v2_3_3.json"), help="Path to save metrics JSON")
+    parser.add_argument("--out-json", type=Path, default=Path("reports/deepfake_eval_v2_3_5.json"), help="Path to save metrics JSON")
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=None,
+        help="Optional root for relative audio_path values. Also supports CALLSHIELD_DATASET_ROOT.",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--limit", type=int, default=None, help="Maximum test rows for dry-run evaluation")
+    parser.add_argument("--balanced", action="store_true", help="Evaluate a class-balanced subset")
+    parser.add_argument("--limit-real", type=int, default=None, help="Maximum real clips when using --balanced")
+    parser.add_argument("--limit-fake", type=int, default=None, help="Maximum fake clips when using --balanced")
+    parser.add_argument("--seed", type=int, default=42, help="Sampling seed for limited/balanced evaluation")
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto", help="Evaluation device")
     parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision")
     parser.add_argument("--pin-memory", action="store_true", help="Pin DataLoader memory for CUDA evaluation")
@@ -291,7 +341,15 @@ def main() -> int:
     state_dict = checkpoint.get("model_state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
     model.load_state_dict(state_dict)
 
-    dataset = DeepfakeCSVDataset(args.test, limit=args.limit)
+    dataset = DeepfakeCSVDataset(
+        args.test,
+        limit=args.limit,
+        dataset_root=args.dataset_root,
+        balanced=args.balanced,
+        limit_real=args.limit_real,
+        limit_fake=args.limit_fake,
+        seed=args.seed,
+    )
     if len(dataset) == 0:
         print("Test CSV contains no rows.")
         return 1
@@ -338,12 +396,15 @@ def main() -> int:
     )
 
     report = {
-        "version": "2.3.4",
+        "version": "2.3.5",
         "report_type": "deepfake_audio_eval",
         "created_at": datetime.now().isoformat(),
         "checkpoint": str(args.checkpoint),
         "test_csv": str(args.test),
         "limit": args.limit,
+        "balanced": args.balanced,
+        "limit_real": args.limit_real,
+        "limit_fake": args.limit_fake,
         "device": device,
         "amp": amp,
         "files": len(dataset),

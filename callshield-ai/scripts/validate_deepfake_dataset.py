@@ -2,10 +2,16 @@
 
 import argparse
 import csv
+import sys
 import wave
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from callshield.engine.dataset_paths import resolve_audio_path
 
 try:
     import soundfile as sf
@@ -33,7 +39,11 @@ def audio_info(path: Path) -> Tuple[Optional[float], Optional[int]]:
         return None, None
 
 
-def validate_split(name: str, path: Path) -> Dict:
+def file_id_from_audio_path(path_text: str) -> str:
+    return Path(path_text).stem
+
+
+def validate_split(name: str, path: Path, dataset_root: Optional[Path] = None) -> Dict:
     result = {
         "name": name,
         "exists": path.exists(),
@@ -46,6 +56,9 @@ def validate_split(name: str, path: Path) -> Dict:
         "durations": [],
         "sample_rates": Counter(),
         "warnings": [],
+        "file_ids": set(),
+        "speakers": set(),
+        "sources": set(),
     }
     if not path.exists():
         return result
@@ -62,9 +75,16 @@ def validate_split(name: str, path: Path) -> Dict:
         else:
             result["fake"] += 1
 
-        audio_path = Path(row.get("audio_path", ""))
-        if not audio_path.is_absolute():
-            audio_path = (path.parent / audio_path).resolve()
+        raw_audio_path = row.get("audio_path", "")
+        result["file_ids"].add(file_id_from_audio_path(raw_audio_path))
+        speaker_id = str(row.get("speaker_id", "")).strip()
+        if speaker_id and speaker_id != "unknown":
+            result["speakers"].add(speaker_id)
+        source = str(row.get("source", "")).strip()
+        if source:
+            result["sources"].add(source)
+
+        audio_path = resolve_audio_path(raw_audio_path, path, dataset_root)
         if not audio_path.exists():
             result["missing"] += 1
             continue
@@ -94,6 +114,46 @@ def class_balance_warning(real: int, fake: int) -> Optional[str]:
     if minority_ratio < 0.35:
         return f"class balance caution; minority class is {minority_ratio:.1%} of labeled clips"
     return None
+
+
+def pairwise_overlap(results: List[Dict], key: str) -> List[Tuple[str, str, Set[str]]]:
+    overlaps = []
+    for i, left in enumerate(results):
+        for right in results[i + 1:]:
+            shared = left[key] & right[key]
+            if shared:
+                overlaps.append((left["name"], right["name"], shared))
+    return overlaps
+
+
+def print_overlap_report(results: List[Dict]) -> bool:
+    print("Leakage checks:")
+    duplicate_file_ids = pairwise_overlap(results, "file_ids")
+    speaker_overlaps = pairwise_overlap(results, "speakers")
+    source_overlaps = pairwise_overlap(results, "sources")
+
+    if duplicate_file_ids:
+        for left, right, shared in duplicate_file_ids:
+            sample = ", ".join(sorted(shared)[:5])
+            print(f"WARNING: duplicate file IDs across {left}/{right}: {len(shared)} ({sample})")
+    else:
+        print("Duplicate file IDs across splits: 0")
+
+    if speaker_overlaps:
+        for left, right, shared in speaker_overlaps:
+            sample = ", ".join(sorted(shared)[:5])
+            print(f"WARNING: speaker overlap across {left}/{right}: {len(shared)} ({sample})")
+    else:
+        print("Speaker overlap across splits: 0")
+
+    if source_overlaps:
+        for left, right, shared in source_overlaps:
+            sample = ", ".join(sorted(shared)[:5])
+            print(f"Source overlap across {left}/{right}: {len(shared)} ({sample})")
+    else:
+        print("Source overlap across splits: 0")
+
+    return not duplicate_file_ids
 
 
 def print_split(result: Dict) -> None:
@@ -130,15 +190,21 @@ def print_split(result: Dict) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate CallShield deepfake dataset CSVs.")
     parser.add_argument("--data", type=Path, default=Path("data/deepfake"), help="Directory containing train/val/test CSVs")
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        default=None,
+        help="Optional root for relative audio_path values. Also supports CALLSHIELD_DATASET_ROOT.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     results = [
-        validate_split("train", args.data / "train.csv"),
-        validate_split("val", args.data / "val.csv"),
-        validate_split("test", args.data / "test.csv"),
+        validate_split("train", args.data / "train.csv", args.dataset_root),
+        validate_split("val", args.data / "val.csv", args.dataset_root),
+        validate_split("test", args.data / "test.csv", args.dataset_root),
     ]
 
     ready = True
@@ -153,6 +219,7 @@ def main() -> int:
         ready = ready and result["real"] > 0
         ready = ready and result["fake"] > 0
 
+    ready = ready and print_overlap_report(results)
     print(f"Ready for training: {'yes' if ready else 'no'}")
     return 0 if ready else 1
 

@@ -1,0 +1,84 @@
+{
+  "version": "2.3.5",
+  "report_type": "deepfake_audio_eval",
+  "created_at": "2026-05-21T23:33:01.523419",
+  "checkpoint": "models\\deepfake_mel_cnn.pt",
+  "test_csv": "data\\deepfake\\test.csv",
+  "limit": 10000,
+  "balanced": false,
+  "limit_real": null,
+  "limit_fake": null,
+  "device": "cuda",
+  "amp": true,
+  "files": 5000,
+  "metrics": {
+    "threshold": 0.5,
+    "accuracy": 0.9584,
+    "precision": 0.9849815811844715,
+    "recall": 0.9573120352519967,
+    "f1": 0.9709497206703911,
+    "false_positive_rate": 0.03871439006574142,
+    "false_negative_rate": 0.04268796474800331,
+    "confusion_matrix": {
+      "tp": 3476,
+      "tn": 1316,
+      "fp": 53,
+      "fn": 155
+    },
+    "true_positives": 3476,
+    "true_negatives": 1316,
+    "false_positives": 53,
+    "false_negatives": 155,
+    "eer": 0.041611285338350325,
+    "eer_threshold": 0.46533203125,
+    "threshold_analysis": {
+      "operating_threshold": 0.5,
+      "best_f1": {
+        "threshold": 0.237548828125,
+        "accuracy": 0.962,
+        "precision": 0.9767248545303409,
+        "recall": 0.9708069402368493,
+        "f1": 0.973756906077348,
+        "false_positive_rate": 0.061358655953250546,
+        "false_negative_rate": 0.029193059763150647,
+        "confusion_matrix": {
+          "tp": 3525,
+          "tn": 1285,
+          "fp": 84,
+          "fn": 106
+        },
+        "true_positives": 3525,
+        "true_negatives": 1285,
+        "false_positives": 84,
+        "false_negatives": 106
+      },
+      "target_fpr": {
+        "target": 0.1,
+        "threshold": 0.116943359375,
+        "accuracy": 0.9594,
+        "precision": 0.9632432432432433,
+        "recall": 0.9815477829798953,
+        "f1": 0.972309371163552,
+        "false_positive_rate": 0.09934258582907232,
+        "false_negative_rate": 0.018452217020104654,
+        "confusion_matrix": {
+          "tp": 3564,
+          "tn": 1233,
+          "fp": 136,
+          "fn": 67
+        },
+        "true_positives": 3564,
+        "true_negatives": 1233,
+        "false_positives": 136,
+        "false_negatives": 67
+      },
+      "eer": {
+        "threshold": 0.46533203125,
+        "eer": 0.041611285338350325
+      }
+    },
+    "roc_auc": 0.9918475533003582,
+    "loss": 0.1177374929279089
+  },
+  "note": "Deepfake CNN metrics are separate from scam NLP conversation-risk metrics."
+}

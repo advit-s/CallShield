@@ -5,6 +5,7 @@ speaker enrollment requires consent, explainable warnings.
 """
 
 import hashlib
+import hmac
 import secrets
 import tempfile
 import os
@@ -17,13 +18,12 @@ class PrivacyLayer:
 
     @staticmethod
     def hash_phone(phone: str) -> str:
-        """Hash a phone number using SHA-256 with random salt.
+        """Hash a phone number using HMAC-SHA256 with an environment pepper.
         Returns a secure, one-way hash."""
         # Normalize: remove non-digits
         normalized = ''.join(c for c in phone if c.isdigit())
-        # Use a deterministic hash but with a system secret
-        salt = "callshield_salt_v1"
-        return hashlib.sha256(f"{normalized}:{salt}".encode()).hexdigest()[:32]
+        pepper = os.environ.get("CALLSHIELD_PHONE_PEPPER", "callshield_dev_phone_pepper_change_me")
+        return hmac.new(pepper.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
 
     @staticmethod
     def generate_call_id() -> str:

@@ -1,4 +1,4 @@
-"""CallShield Deepfake Detection Engine (v2.3.4).
+"""CallShield Deepfake Detection Engine (v2.3.5).
 
 CNN-based architecture for synthetic speech detection.
 Uses log-mel spectrograms as input.
@@ -8,6 +8,9 @@ import json
 import warnings
 from pathlib import Path
 from typing import Dict, Optional
+
+import numpy as np
+
 from .audio_features import AudioFeatureExtractor, LIBROSA_AVAILABLE
 
 try:
@@ -87,15 +90,13 @@ class DeepFakeDetector:
         self.model_status = "pipeline_implemented_no_trained_model"
         self.calibration_status = "uncalibrated"
         self.operating_threshold = 0.5
+        self.soft_audio_threshold = 0.5
+        self.hard_audio_threshold = 0.5
         self.target_fpr = None
         self.calibration_note = "No calibrated threshold file found."
         self.device = "cpu"
 
         if not self.checkpoint_path.exists():
-            if TORCH_AVAILABLE:
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-                self.model = DeepFakeCNN().to(self.device)
-                self.model.eval()
             return
 
         if not TORCH_AVAILABLE:
@@ -105,7 +106,7 @@ class DeepFakeDetector:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = DeepFakeCNN().to(self.device)
         try:
-            checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
+            checkpoint = self._load_checkpoint()
             state_dict = checkpoint.get("model_state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
             self.model.load_state_dict(state_dict)
             self.model.eval()
@@ -114,6 +115,12 @@ class DeepFakeDetector:
         except Exception as e:
             warnings.warn(f"Failed to load deepfake model: {e}")
             self.model_status = "checkpoint_load_failed"
+
+    def _load_checkpoint(self):
+        try:
+            return torch.load(self.checkpoint_path, map_location=self.device, weights_only=True)
+        except TypeError:
+            return torch.load(self.checkpoint_path, map_location=self.device)
 
     @staticmethod
     def _default_checkpoint_path() -> Path:
@@ -136,12 +143,24 @@ class DeepFakeDetector:
             with self.calibration_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             self.operating_threshold = float(data.get("operating_threshold", self.operating_threshold))
+            self.soft_audio_threshold = float(data.get("soft_audio_threshold", self.operating_threshold))
+            self.hard_audio_threshold = float(data.get("hard_audio_threshold", self.hard_audio_threshold))
             self.target_fpr = data.get("target_fpr")
             self.calibration_status = data.get("status", "calibrated")
             self.calibration_note = data.get("note", "Calibrated threshold loaded.")
         except Exception as e:
             warnings.warn(f"Failed to load deepfake calibration: {e}")
             self.calibration_status = "calibration_load_failed"
+
+    def _has_enough_signal(self, y) -> bool:
+        if hasattr(self.extractor, "has_speech"):
+            return bool(self.extractor.has_speech(y))
+        samples = np.asarray(y, dtype=np.float32)
+        if samples.size == 0:
+            return False
+        rms = float(np.sqrt(np.mean(np.square(samples))))
+        peak = float(np.max(np.abs(samples)))
+        return rms >= 1e-4 and peak >= 1e-3
 
     def detect(self, audio_path: str) -> Dict:
         """
@@ -158,6 +177,9 @@ class DeepFakeDetector:
                 "checkpoint_path": str(self.checkpoint_path),
                 "calibration_status": self.calibration_status,
                 "operating_threshold": self.operating_threshold,
+                "soft_audio_threshold": self.soft_audio_threshold,
+                "hard_audio_threshold": self.hard_audio_threshold,
+                "audio_signal_strength": "unavailable",
                 "note": "Deepfake pipeline implemented, trained model pending."
             }
 
@@ -172,16 +194,66 @@ class DeepFakeDetector:
 
         try:
             y = self.extractor.load_audio(audio_path)
-            y_proc = self.extractor.preprocess_audio(y)
-            log_mel = self.extractor.extract_mel(y_proc)
-            input_tensor = self.extractor.to_tensor(log_mel).to(self.device)
-            
-            with torch.no_grad():
-                score = self.model(input_tensor).item()
+            activity = (
+                self.extractor.audio_activity(y)
+                if hasattr(self.extractor, "audio_activity")
+                else {"speech_like": self._has_enough_signal(y)}
+            )
+            if not activity.get("speech_like", False):
+                return {
+                    "deepfake_score": None,
+                    "raw_deepfake_score": None,
+                    "fusion_deepfake_score": 0.0,
+                    "operating_threshold": round(self.operating_threshold, 4),
+                    "soft_audio_threshold": round(self.soft_audio_threshold, 4),
+                    "hard_audio_threshold": round(self.hard_audio_threshold, 4),
+                    "audio_signal_strength": "no_speech",
+                    "calibrated_decision": "unavailable",
+                    "confidence": "unavailable",
+                    "model_status": self.model_status,
+                    "calibration_status": self.calibration_status,
+                    "target_fpr": self.target_fpr,
+                    "used_in_fusion": False,
+                    "model_name": "log_mel_cnn_v1",
+                    "activity": activity,
+                    "note": "Audio contained too little speech-like signal for deepfake inference."
+                }
 
-            is_deepfake = score >= self.operating_threshold
-            fusion_score = score if is_deepfake else 0.0
-            distance = abs(score - self.operating_threshold)
+            if hasattr(self.extractor, "iter_windows"):
+                windows = list(self.extractor.iter_windows(y))
+            else:
+                windows = [self.extractor.preprocess_audio(y)]
+
+            scores = []
+            with torch.no_grad():
+                for y_proc in windows:
+                    log_mel = self.extractor.extract_mel(y_proc)
+                    input_tensor = self.extractor.to_tensor(log_mel).to(self.device)
+                    scores.append(float(self.model(input_tensor).item()))
+            score = max(scores) if scores else 0.0
+
+            if score < self.soft_audio_threshold:
+                audio_signal_strength = "ignored"
+                calibrated_decision = "not_synthetic"
+                fusion_score = 0.0
+                used_in_fusion = False
+            elif score < self.hard_audio_threshold:
+                audio_signal_strength = "weak"
+                calibrated_decision = "weak_synthetic_signal"
+                fusion_score = score
+                used_in_fusion = True
+            else:
+                audio_signal_strength = "strong"
+                calibrated_decision = "synthetic"
+                fusion_score = score
+                used_in_fusion = True
+
+            nearest_threshold = (
+                self.soft_audio_threshold
+                if score < self.hard_audio_threshold
+                else self.hard_audio_threshold
+            )
+            distance = abs(score - nearest_threshold)
             confidence = "high" if distance > 0.20 else "medium" if distance > 0.05 else "low"
 
             return {
@@ -189,13 +261,17 @@ class DeepFakeDetector:
                 "raw_deepfake_score": round(score, 3),
                 "fusion_deepfake_score": round(fusion_score, 3),
                 "operating_threshold": round(self.operating_threshold, 4),
-                "calibrated_decision": "synthetic" if is_deepfake else "not_synthetic",
+                "soft_audio_threshold": round(self.soft_audio_threshold, 4),
+                "hard_audio_threshold": round(self.hard_audio_threshold, 4),
+                "audio_signal_strength": audio_signal_strength,
+                "calibrated_decision": calibrated_decision,
                 "confidence": confidence,
                 "model_status": self.model_status,
                 "calibration_status": self.calibration_status,
                 "target_fpr": self.target_fpr,
-                "used_in_fusion": True,
-                "model_name": "log_mel_cnn_v1"
+                "used_in_fusion": used_in_fusion,
+                "model_name": "log_mel_cnn_v1",
+                "activity": activity,
             }
         except Exception as e:
             warnings.warn(f"Deepfake detection failed: {e}")
@@ -203,6 +279,13 @@ class DeepFakeDetector:
                 "deepfake_score": None,
                 "confidence": "unavailable",
                 "model_status": "inference_failed",
+                "calibration_status": self.calibration_status,
+                "audio_signal_strength": "unavailable",
+                "calibrated_decision": "unavailable",
+                "fusion_deepfake_score": 0.0,
+                "operating_threshold": round(self.operating_threshold, 4),
+                "soft_audio_threshold": round(self.soft_audio_threshold, 4),
+                "hard_audio_threshold": round(self.hard_audio_threshold, 4),
                 "used_in_fusion": False,
                 "error": str(e)
             }

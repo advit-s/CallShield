@@ -1,0 +1,74 @@
+{
+  "version": "2.3.5",
+  "rows": {
+    "train": 5000,
+    "val": 5000,
+    "test": 5000
+  },
+  "duplicate_paths": {
+    "train_vs_val": {
+      "count": 0,
+      "examples": []
+    },
+    "train_vs_test": {
+      "count": 0,
+      "examples": []
+    },
+    "val_vs_test": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "duplicate_file_stems": {
+    "train_vs_val": {
+      "count": 0,
+      "examples": []
+    },
+    "train_vs_test": {
+      "count": 0,
+      "examples": []
+    },
+    "val_vs_test": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "speaker_overlap": {
+    "train_vs_val": {
+      "count": 0,
+      "examples": []
+    },
+    "train_vs_test": {
+      "count": 0,
+      "examples": []
+    },
+    "val_vs_test": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "source_overlap": {
+    "train_vs_val": {
+      "count": 1,
+      "examples": [
+        "asvspoof2019"
+      ]
+    },
+    "train_vs_test": {
+      "count": 1,
+      "examples": [
+        "asvspoof2019"
+      ]
+    },
+    "val_vs_test": {
+      "count": 1,
+      "examples": [
+        "asvspoof2019"
+      ]
+    }
+  },
+  "duplicate_audio_hashes": {},
+  "hash_audio": false,
+  "leakage_found": false,
+  "ready_for_final_reporting": true
+}

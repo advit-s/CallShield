@@ -28,7 +28,7 @@ def test_trained_checkpoint_status_returns_numeric_score_and_used_in_fusion(tmp_
 
     class FakeExtractor:
         def load_audio(self, audio_path):
-            return [0.0]
+            return [0.01, -0.01]
 
         def preprocess_audio(self, y):
             return y
@@ -70,6 +70,8 @@ def test_trained_checkpoint_status_returns_numeric_score_and_used_in_fusion(tmp_
     detector.model_status = "trained_model_loaded"
     detector.device = "cpu"
     detector.operating_threshold = 0.5
+    detector.soft_audio_threshold = 0.1978759765625
+    detector.hard_audio_threshold = 0.5
     detector.target_fpr = 0.1
     detector.calibration_status = "calibrated"
 
@@ -79,6 +81,7 @@ def test_trained_checkpoint_status_returns_numeric_score_and_used_in_fusion(tmp_
     assert result["deepfake_score"] == 0.73
     assert result["fusion_deepfake_score"] == 0.73
     assert result["calibrated_decision"] == "synthetic"
+    assert result["audio_signal_strength"] == "strong"
     assert result["model_status"] == "trained_model_loaded"
     assert result["used_in_fusion"] is True
 
@@ -93,7 +96,7 @@ def test_trained_checkpoint_below_calibrated_threshold_has_zero_fusion_score(tmp
 
     class FakeExtractor:
         def load_audio(self, audio_path):
-            return [0.0]
+            return [0.01, -0.01]
 
         def preprocess_audio(self, y):
             return y
@@ -134,7 +137,9 @@ def test_trained_checkpoint_below_calibrated_threshold_has_zero_fusion_score(tmp
     detector.model = FakeModel()
     detector.model_status = "trained_model_loaded"
     detector.device = "cpu"
-    detector.operating_threshold = 0.9683
+    detector.operating_threshold = 0.9
+    detector.soft_audio_threshold = 0.9
+    detector.hard_audio_threshold = 0.95
     detector.target_fpr = 0.1
     detector.calibration_status = "calibrated"
 
@@ -143,4 +148,5 @@ def test_trained_checkpoint_below_calibrated_threshold_has_zero_fusion_score(tmp
     assert result["deepfake_score"] == 0.73
     assert result["fusion_deepfake_score"] == 0.0
     assert result["calibrated_decision"] == "not_synthetic"
-    assert result["used_in_fusion"] is True
+    assert result["audio_signal_strength"] == "ignored"
+    assert result["used_in_fusion"] is False

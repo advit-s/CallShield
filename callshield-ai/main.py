@@ -20,24 +20,50 @@ sys.path.insert(0, str(Path(__file__).parent))
 def run_server():
     """Start the CallShield API server."""
     import os
+    import socket
     import uvicorn
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
+    lan_urls = []
+    try:
+        hostname = socket.gethostname()
+        for _, _, _, _, sockaddr in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = sockaddr[0]
+            if not ip.startswith("127.") and ip not in lan_urls:
+                lan_urls.append(ip)
+    except OSError:
+        lan_urls = []
 
     print(f"\n{'='*60}")
-    print(f"  CallShield AI v2.3.4 - Server")
+    print(f"  CallShield AI v2.3.5 - Server")
     print(f"  API: http://{host}:{port}")
     print(f"  Dashboard: http://{host}:{port}/demo")
+    if lan_urls:
+        print("  Phone URLs:")
+        for ip in lan_urls:
+            print(f"    http://{ip}:{port}")
     print(f"{'='*60}\n")
 
     uvicorn.run(
         "callshield.api.server:app",
         host=host,
         port=port,
-        reload=True,
+        reload=os.getenv("CALLSHIELD_RELOAD", "false").lower() == "true",
         log_level="info"
     )
+
+
+def run_demo():
+    """Print the dashboard URL and optionally open it in a browser."""
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    url = f"http://{host}:{port}/demo"
+    print(f"\nDashboard: {url}")
+    print("Start the API first with: python main.py server")
+    if os.getenv("CALLSHIELD_OPEN_BROWSER", "false").lower() == "true":
+        import webbrowser
+        webbrowser.open(url)
 
 
 def run_sdk_demo():
@@ -98,6 +124,8 @@ if __name__ == "__main__":
             run_sdk_demo()
         elif cmd == "test":
             run_tests()
+        elif cmd == "demo":
+            run_demo()
         elif cmd == "help":
             show_help()
         else:

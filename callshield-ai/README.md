@@ -1,4 +1,4 @@
-# CallShield AI v2.3.4 - Deepfake Calibration Patch
+# CallShield AI v2.3.5 - Deepfake Evaluation Hardening
 
 > Caller ID tells you who might be calling. CallShield tells you whether the conversation is becoming dangerous.
 
@@ -14,18 +14,35 @@ CallShield is a real-time scam call intelligence layer. It analyzes call convers
 | Challenge prompts | Implemented |
 | Privacy layer | Implemented |
 | ASR | Available when Whisper is installed |
-| Deepfake audio | First baseline trained, calibrated threshold active |
+| Deepfake audio | Deployed checkpoint trained and calibrated |
 | Speaker verification | Placeholder |
 
-The deepfake pipeline includes log-mel feature extraction, a CNN architecture, API integration, training scripts, GPU training, external ASVspoof 2021 validation, and a calibrated fusion threshold.
+The deepfake pipeline includes log-mel feature extraction, a CNN architecture, API integration, training scripts, GPU training, same-domain ASVspoof 2021 held-out validation, cross-domain ASVspoof reporting, and a calibrated fusion threshold.
 
 ## Deepfake Model Status
 
-Deepfake model status: untrained until checkpoint is trained.
+Deepfake model status is runtime-dependent.
 
 Before `models/deepfake_mel_cnn.pt` exists, CallShield reports `pipeline_implemented_no_trained_model`, returns `deepfake_score: null`, and keeps `used_in_fusion: false`. After a checkpoint is trained and loaded, CallShield reports `trained_model_loaded`.
 
-The deployed baseline uses `models/deepfake_mel_cnn.pt` with `models/deepfake_calibration.json`. The current conservative operating threshold is `0.9683`, selected from ASVspoof 2021 external validation at target FPR <= 10%. Scores below that threshold are reported as raw model scores but do not boost the deepfake fusion signal.
+The deployed model is canonical:
+
+```text
+models/deepfake_mel_cnn.pt = deployed checkpoint
+models/deepfake_calibration.json = calibration for that checkpoint
+```
+
+`models/deepfake_mel_cnn.pt` is currently copied from `models/deepfake_mel_cnn_2021_finetuned.pt`. The loaded runtime threshold profile is:
+
+```text
+score < 0.1978759765625       -> audio signal ignored
+0.1978759765625 <= score < 0.5 -> weak/suspicious audio evidence
+score >= 0.5                  -> strong deepfake evidence
+```
+
+The soft threshold was selected from the ASVspoof 2021 same-domain held-out split at target FPR <= 10%. The hard threshold avoids overreacting to weak audio evidence.
+
+See `models/model_manifest.json` for the deployed checkpoint, calibration file, source checkpoint, operating threshold, reports, and limitations.
 
 ## Quick Start
 
@@ -36,6 +53,112 @@ python3 main.py server
 ```
 
 Open [http://localhost:8000/demo](http://localhost:8000/demo) for the dashboard.
+
+On Windows with the checked-in virtual environment, use:
+
+```powershell
+.\.venv\Scripts\python.exe main.py server
+.\.venv\Scripts\python.exe main.py demo
+```
+
+## Real-World Pilot
+
+Use the pilot runner on consented audio only:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_real_world_audio_test.py `
+  --audio-dir samples\pilot_audio `
+  --transcripts-csv samples\pilot_labels.csv `
+  --out-json reports\real_world_pilot.json `
+  --out-csv reports\real_world_pilot.csv
+```
+
+If you do not have transcripts, run Whisper ASR:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_real_world_audio_test.py `
+  --audio-dir samples\pilot_audio `
+  --asr `
+  --whisper-model base `
+  --out-json reports\real_world_pilot_asr.json
+```
+
+Read [docs/REAL_WORLD_TESTING.md](docs/REAL_WORLD_TESTING.md) before testing real calls. The short version: use consented audio, keep normal/scam/synthetic/compressed/noisy samples separate, and do not claim production readiness from a small pilot.
+
+## Android Mobile PoC
+
+Option 1 is implemented in [android/CallShieldMobile](android/CallShieldMobile). It records microphone audio in 8-second WAV chunks, shows the ASR transcript it heard, shows a log-mel spectrogram preview, and streams each chunk to:
+
+```text
+POST /analyze-audio
+```
+
+Run the backend first:
+
+```powershell
+.\.venv\Scripts\python.exe main.py server
+```
+
+Then open `android/CallShieldMobile` in Android Studio.
+
+Use this server URL in the app:
+
+```text
+Android emulator: http://10.0.2.2:8000
+Physical phone:   http://YOUR_LAPTOP_LAN_IP:8000
+```
+
+Important limitation: this is a speakerphone/test-call microphone streaming PoC. Android generally does not allow normal apps to capture private in-call audio directly. A Truecaller-style product would need a compliant telecom, OEM, accessibility, VoIP, or server-side integration path with user consent.
+
+For a physical phone, use the LAN URL printed by `python main.py server` and tap `Test server` in the app before recording. `10.0.2.2` is emulator-only.
+
+The app uploads one chunk at a time and skips chunks while the backend is busy, keeping the demo close to real time instead of building a delayed queue.
+
+Live mobile safeguards:
+
+```text
+background/no-speech chunks -> ignored
+ASR hallucinations -> suppressed
+deepfake-only evidence -> shown, but not fused into risk without scam-like text
+```
+
+Optional Hugging Face Hindi/Hinglish ASR:
+
+```powershell
+$env:CALLSHIELD_ASR_BACKEND="huggingface"
+$env:CALLSHIELD_HF_ASR_MODEL="Oriserve/Whisper-Hindi2Hinglish-Swift"
+.\.venv\Scripts\python.exe main.py server
+```
+
+The Hugging Face model downloads on first run. Use this only after the default local Whisper path is working.
+
+Offline Hugging Face mode downloads the model once, then runs from disk:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\download_hf_asr_model.py --model Oriserve/Whisper-Hindi2Hinglish-Swift
+
+$env:CALLSHIELD_ASR_BACKEND="huggingface"
+$env:CALLSHIELD_ASR_OFFLINE="true"
+$env:CALLSHIELD_HF_ASR_LOCAL_DIR="models\hf_asr\Oriserve__Whisper-Hindi2Hinglish-Swift"
+.\.venv\Scripts\python.exe main.py server
+```
+
+Use offline mode for demos where the laptop may not have reliable internet.
+
+Read [docs/ANDROID_POC.md](docs/ANDROID_POC.md) for the mobile demo flow.
+
+## Truecaller Outreach Pack
+
+For internship outreach, use [docs/TRUECALLER_INTERNSHIP_BRIEF.md](docs/TRUECALLER_INTERNSHIP_BRIEF.md). It includes:
+
+- one-line pitch
+- Truecaller fit
+- architecture
+- current metrics
+- honest limitations
+- 30-day internship plan
+- email template
+- resume bullet
 
 ## SDK Usage
 
@@ -81,6 +204,13 @@ When no trained deepfake checkpoint exists:
 
 `/score-call` accepts `audio_path` only when `CALLSHIELD_DEBUG=true`. Public audio analysis should use `/analyze-audio` file upload.
 
+Deletion endpoints require an admin API key unless `CALLSHIELD_DEMO_MODE=true`:
+
+```powershell
+$env:CALLSHIELD_ADMIN_KEY="change-this-secret"
+curl -X DELETE http://localhost:8000/call-summary/CALL_ID -H "X-Admin-API-Key: change-this-secret"
+```
+
 ## Deepfake Training Pipeline
 
 Expected CSV schema:
@@ -98,10 +228,22 @@ Labels:
 1 = fake
 ```
 
+CSV paths can be absolute, relative to the CSV file, relative to the project root, or relative to `CALLSHIELD_DATASET_ROOT`.
+
+Portable dataset example:
+
+```powershell
+$env:CALLSHIELD_DATASET_ROOT="C:\Users\advit\OneDrive\Desktop\CallShield"
+python scripts\prepare_asvspoof.py --root "..\ASVspoof_2019_LA" --out data\deepfake --portable-paths --path-root ".." --split-all
+python scripts\validate_deepfake_dataset.py --data data\deepfake
+```
+
+Validation reports class balance, duplicate file IDs across splits, speaker overlap, and source overlap. For final metrics, keep `train.csv`, `val.csv`, and `test.csv` separate: train on train, calibrate thresholds on val, and report final metrics on untouched test.
+
 Suggested workflow after datasets finish downloading:
 
 ```bash
-python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake
+python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake --ensure-test-split
 python scripts/prepare_wavefake.py --root /path/to/WaveFake --out data/deepfake
 python scripts/validate_deepfake_dataset.py --data data/deepfake
 python scripts/train_deepfake_mel_cnn.py --data data/deepfake --epochs 20
@@ -111,7 +253,7 @@ python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --te
 Dry-run workflow for a small integration pass:
 
 ```bash
-python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake --limit 40
+python scripts/prepare_asvspoof.py --root /path/to/ASVspoof --out data/deepfake --limit 40 --ensure-test-split
 python scripts/validate_deepfake_dataset.py --data data/deepfake
 python scripts/train_deepfake_mel_cnn.py --data data/deepfake --epochs 1 --batch-size 4 --limit 40
 python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --test data/deepfake/test.csv --limit 40
@@ -127,7 +269,42 @@ The first baseline is meant to prove the pipeline, not production-grade detectio
 - Deepfake audio evaluation: `python scripts/evaluate_deepfake.py --checkpoint models/deepfake_mel_cnn.pt --test data/deepfake/test.csv`
 - Combined fusion behavior: verify `/model-status` and `used_in_fusion` after the checkpoint loads
 
-Evaluation writes deepfake audio metrics to `reports/deepfake_eval_v2_3_3.json` by default. Watch accuracy, precision, recall, F1, ROC-AUC, false positive rate, false negative rate, and the confusion matrix.
+Evaluation writes deepfake audio metrics to `reports/deepfake_eval_v2_3_5.json` by default. Watch accuracy, precision, recall, F1, ROC-AUC, false positive rate, false negative rate, and the confusion matrix.
+
+## Evaluation Summary
+
+Do not call the ASVspoof 2021 random/fine-tune split external validation. It is same-domain held-out validation. External or cross-domain validation means the model is trained on one domain and tested on a different domain.
+
+| Evaluation | Accuracy | F1 | ROC-AUC | EER | FPR |
+|------------|----------|----|---------|-----|-----|
+| Scam NLP conversation risk | 94.0% | 93.8% | n/a | n/a | 2.0% |
+| Deepfake CNN - 2019 checkpoint on 2019 test | 94.4% | 96.2% | 98.3% | 5.6% | 10.4% |
+| Deepfake CNN - 2019 checkpoint on 2021 test | 72.8% | 76.6% | 81.6% | 25.8% | 43.6% |
+| Deepfake CNN - 2021 same-domain fine-tuned | 98.0% | 98.7% | 99.8% | 2.1% | 3.9% |
+| Deepfake CNN - 2021 fine-tuned on 2019 test | 95.8% | 97.1% | 99.2% | 4.2% | 3.9% |
+| Deepfake CNN - 2021 balanced test | 97.4% | 97.4% | 99.8% | 1.9% | 3.9% |
+
+Current scam NLP rule evaluation is separate from audio metrics: about 94% accuracy, 97.8% precision, 90% recall, 93.8% F1, and about 2% false-positive rate on the local scenario set.
+
+Honest claim: CallShield is trained and calibrated on ASVspoof 2019/2021 data. It is not yet validated on real phone-call audio, noisy WhatsApp/VoIP calls, or in-the-wild scam calls.
+
+Canonical report files:
+
+```text
+models/model_manifest.json
+reports/deepfake_internal_2019.json
+reports/deepfake_cross_domain_2019_to_2021.json
+reports/deepfake_2021_same_domain.json
+reports/deepfake_eval_2019_checkpoint_on_2019_test.json
+reports/deepfake_eval_2019_checkpoint_on_2021_test.json
+reports/deepfake_eval_2021_finetuned_on_2019_test.json
+reports/deepfake_eval_2021_finetuned_on_2021_test.json
+reports/deepfake_eval_2021_balanced.json
+reports/deepfake_cross_domain_summary.json
+reports/deepfake_final_summary.json
+```
+
+Product rule: deepfake audio should support fusion, not dominate it. A high deepfake score with low scam-language risk should stay a soft warning; strong warnings need scam behavior or multiple corroborating signals.
 
 ## RTX 3050 GPU Training
 
@@ -141,10 +318,10 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 Then run a balanced GPU baseline:
 
 ```powershell
-python scripts\prepare_asvspoof.py --root "..\ASVspoof_2019_LA" --out data\deepfake --limit 5000 --balanced
+python scripts\prepare_asvspoof.py --root "..\ASVspoof_2019_LA" --out data\deepfake --limit 5000 --balanced --ensure-test-split
 python scripts\validate_deepfake_dataset.py --data data\deepfake
 python scripts\train_deepfake_mel_cnn.py --data data\deepfake --epochs 10 --batch-size 32 --limit 5000 --device cuda --amp --num-workers 2
-python scripts\evaluate_deepfake.py --checkpoint models\deepfake_mel_cnn.pt --test data\deepfake\val.csv --limit 1000 --device cuda --amp --num-workers 2 --out-json reports\deepfake_eval_v2_3_3_gpu_val_5000.json
+python scripts\evaluate_deepfake.py --checkpoint models\deepfake_mel_cnn.pt --test data\deepfake\test.csv --limit 1000 --device cuda --amp --num-workers 2 --out-json reports\deepfake_eval_v2_3_5_gpu_test_5000.json
 ```
 
 If the laptop runs out of GPU memory, reduce `--batch-size` to `16`. If Windows multiprocessing acts up, set `--num-workers 0`.
@@ -160,7 +337,7 @@ CallShield: create venv
 CallShield: install requirements
 CallShield: install torch CUDA 12.1
 CallShield: check CUDA
-v2.3.4: full deepfake smoke pipeline
+v2.3.5: full deepfake smoke pipeline
 CallShield: model status SDK
 CallShield: server
 CallShield: model status API
@@ -169,7 +346,7 @@ CallShield: model status API
 For parallel work, run:
 
 ```text
-v2.3.4: parallel audio train + scam NLP eval
+v2.3.5: parallel audio train + scam NLP eval
 ```
 
 This trains the deepfake audio smoke run while evaluating the scam NLP rules. The current repo does not yet contain a trainable scam NLP model, so there are not two trainable model families to optimize in parallel yet.

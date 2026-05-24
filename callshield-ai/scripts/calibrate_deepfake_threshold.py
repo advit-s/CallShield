@@ -51,14 +51,16 @@ def main() -> int:
     secondary_reports: List[Dict] = [load_report(path) for path in args.secondary_report]
 
     calibration = {
-        "version": "2.3.4",
+        "version": "2.3.5",
         "status": "calibrated",
         "created_at": datetime.now().isoformat(),
         "model_path": str(args.model),
         "operating_threshold": target["threshold"],
+        "soft_audio_threshold": target["threshold"],
+        "hard_audio_threshold": 0.5,
         "target_fpr": target["target"],
         "calibration_source": str(args.primary_report),
-        "note": "Conservative external-domain threshold. Scores below this threshold are not used as a deepfake fusion signal.",
+        "note": "Conservative calibrated threshold. Scores below this threshold are not used as a deepfake fusion signal.",
         "primary_report": compact_report(primary),
         "secondary_reports": [compact_report(report) for report in secondary_reports],
     }

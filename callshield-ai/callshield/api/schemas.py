@@ -1,6 +1,6 @@
 """CallShield API Schemas (Pydantic models)."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -64,6 +64,8 @@ class FeedbackRequest(BaseModel):
 
 class RiskResult(BaseModel):
     """Call analysis response with confidence and calibration."""
+    model_config = ConfigDict(protected_namespaces=())
+
     call_id: str
     risk_score: float = Field(..., description="Risk score 0-100")
     risk_band: RiskBand
@@ -105,6 +107,8 @@ class SpeakerResponse(BaseModel):
 
 class CallSummaryResponse(BaseModel):
     """GET /call-summary/{call_id} response."""
+    model_config = ConfigDict(protected_namespaces=())
+
     call_id: str
     risk_score: float
     risk_band: RiskBand

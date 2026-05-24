@@ -1,0 +1,80 @@
+{
+  "version": "2.3.5",
+  "release": "Deepfake Evaluation Hardening",
+  "threshold_profile": {
+    "soft_audio_threshold": 0.1978759765625,
+    "hard_audio_threshold": 0.5,
+    "meaning": {
+      "below_soft": "audio deepfake signal ignored",
+      "soft_to_hard": "weak/suspicious audio evidence",
+      "hard_and_above": "strong deepfake evidence"
+    }
+  },
+  "leakage_report": "reports/deepfake_leakage_2019_test.json",
+  "reports": {
+    "asvspoof2019_checkpoint_on_2019_test": "reports/deepfake_eval_2019_checkpoint_on_2019_test.json",
+    "asvspoof2019_checkpoint_on_2021_test": "reports/deepfake_eval_2019_checkpoint_on_2021_test.json",
+    "asvspoof2021_finetuned_on_2021_test": "reports/deepfake_eval_2021_finetuned_on_2021_test.json",
+    "asvspoof2021_finetuned_on_2019_test": "reports/deepfake_eval_2021_finetuned_on_2019_test.json",
+    "asvspoof2021_balanced_test": "reports/deepfake_eval_2021_balanced.json"
+  },
+  "metrics": {
+    "asvspoof2019_checkpoint_on_2019_test": {
+      "files": 5000,
+      "accuracy": 0.944,
+      "precision": 0.961,
+      "recall": 0.963,
+      "f1": 0.962,
+      "false_positive_rate": 0.104,
+      "roc_auc": 0.983,
+      "eer": 0.056
+    },
+    "asvspoof2019_checkpoint_on_2021_test": {
+      "files": 1000,
+      "accuracy": 0.728,
+      "precision": 0.672,
+      "recall": 0.892,
+      "f1": 0.766,
+      "false_positive_rate": 0.436,
+      "roc_auc": 0.816,
+      "eer": 0.258
+    },
+    "asvspoof2021_finetuned_on_2021_test": {
+      "files": 10000,
+      "accuracy": 0.98,
+      "precision": 0.988,
+      "recall": 0.985,
+      "f1": 0.987,
+      "false_positive_rate": 0.039,
+      "roc_auc": 0.998,
+      "eer": 0.021
+    },
+    "asvspoof2021_finetuned_on_2019_test": {
+      "files": 5000,
+      "accuracy": 0.958,
+      "precision": 0.985,
+      "recall": 0.957,
+      "f1": 0.971,
+      "false_positive_rate": 0.039,
+      "roc_auc": 0.992,
+      "eer": 0.042
+    },
+    "asvspoof2021_balanced_test": {
+      "files": 4000,
+      "accuracy": 0.974,
+      "precision": 0.962,
+      "recall": 0.986,
+      "f1": 0.974,
+      "false_positive_rate": 0.039,
+      "roc_auc": 0.998,
+      "eer": 0.019
+    }
+  },
+  "interpretation": [
+    "The 2019-trained checkpoint drops sharply on 2021, showing domain sensitivity.",
+    "The 2021-finetuned deployed checkpoint performs strongly on both the 2021 held-out split and the new 2019 test split.",
+    "The balanced 2021 evaluation confirms the high score is not only an artifact of the original fake-heavy 2021 split.",
+    "This is still ASVspoof validation, not real phone-call audio validation."
+  ]
+}
+
