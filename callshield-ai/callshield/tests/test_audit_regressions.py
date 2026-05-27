@@ -1,6 +1,7 @@
 """Regression tests for audit-driven hardening fixes."""
 
 import os
+import json
 import wave
 from pathlib import Path
 
@@ -28,6 +29,10 @@ def _write_wav(path: Path, frames: bytes = b"\x00\x00" * 1600) -> None:
         wav.writeframes(frames)
 
 
+def _json_contains(value, needle: str) -> bool:
+    return needle in json.dumps(value, sort_keys=True)
+
+
 def test_fusion_partial_custom_weights_use_current_defaults():
     engine = RiskFusionEngine(weights={"scam_language": 0.5})
 
@@ -35,6 +40,8 @@ def test_fusion_partial_custom_weights_use_current_defaults():
 
     assert result.raw_components["weights"]["deepfake"] == RiskFusionEngine.DEFAULT_WEIGHTS["deepfake"]
     assert result.risk_score == 20.0
+    result.raw_components["weights"]["deepfake"] = 0.99
+    assert engine.weights["deepfake"] == RiskFusionEngine.DEFAULT_WEIGHTS["deepfake"]
 
 
 def test_scam_nlp_matches_upi_with_punctuation_and_sentence_end():
@@ -48,6 +55,7 @@ def test_scam_nlp_financial_urgency_gets_suspicious_base():
 
     assert analysis.scam_score >= 0.25
     assert analysis.urgency_score > 0
+    assert any("5000" in item for item in analysis.financial_keywords)
 
 
 def test_remote_access_classified_separately_from_tech_support():
@@ -105,12 +113,15 @@ def test_verify_speaker_does_not_claim_embedding_is_stored():
     assert response.json()["embedding_stored"] is False
 
 
-def test_analyze_audio_does_not_store_transcript_preview_by_default(monkeypatch, tmp_path):
+def test_analyze_audio_does_not_leak_transcript_by_default(monkeypatch, tmp_path):
     class FakeASR:
         def transcribe(self, audio_path, language=None):
             return {"text": "SECRET OTP 123456", "language": "en", "segments": []}
 
     monkeypatch.setattr(server, "_get_asr", lambda: FakeASR())
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "audit-secret")
+    monkeypatch.delenv("STORE_TRANSCRIPTS", raising=False)
+    monkeypatch.setenv("INCLUDE_TRANSCRIPT_PREVIEW", "true")
 
     wav_path = tmp_path / "audio.wav"
     _write_wav(wav_path)
@@ -122,10 +133,68 @@ def test_analyze_audio_does_not_store_transcript_preview_by_default(monkeypatch,
         )
 
     assert response.status_code == 200
-    assert "SECRET OTP" not in response.json()["explanation"]
+    response_json = response.json()
+    assert not _json_contains(response_json, "SECRET OTP")
 
-    summary = client.get("/call-summary/audit-audio-privacy").json()
-    assert "SECRET OTP" not in summary["explanation"]
+    summary = client.get(
+        "/call-summary/audit-audio-privacy",
+        headers={"X-Admin-API-Key": "audit-secret"},
+    ).json()
+    assert not _json_contains(summary, "SECRET OTP")
+
+
+def test_analyze_audio_can_return_live_transcript_without_storing_it(monkeypatch, tmp_path):
+    class FakeASR:
+        def transcribe(self, audio_path, language=None):
+            return {"text": "send money your child is with us", "language": "en", "segments": []}
+
+    monkeypatch.setattr(server, "_get_asr", lambda: FakeASR())
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "audit-secret")
+    monkeypatch.delenv("STORE_TRANSCRIPTS", raising=False)
+
+    wav_path = tmp_path / "audio.wav"
+    _write_wav(wav_path)
+
+    with wav_path.open("rb") as audio:
+        response = client.post(
+            "/analyze-audio?call_id=audit-live-transcript&include_transcript=true",
+            files={"audio": ("audio.wav", audio, "audio/wav")},
+        )
+
+    assert response.status_code == 200
+    response_json = response.json()
+    assert _json_contains(response_json, "send money your child is with us")
+
+    summary = client.get(
+        "/call-summary/audit-live-transcript",
+        headers={"X-Admin-API-Key": "audit-secret"},
+    ).json()
+    assert not _json_contains(summary, "send money your child is with us")
+
+
+def test_call_summary_requires_owner_or_admin_key(monkeypatch):
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "audit-secret")
+    client.post(
+        "/analyze-transcript",
+        json={
+            "call_id": "audit-summary-guard",
+            "user_id": "owner-user",
+            "transcript": "Normal call.",
+        },
+    )
+
+    unauthorized = client.get("/call-summary/audit-summary-guard")
+    wrong_owner = client.get("/call-summary/audit-summary-guard?user_id=other-user")
+    owner = client.get("/call-summary/audit-summary-guard?user_id=owner-user")
+    admin = client.get(
+        "/call-summary/audit-summary-guard",
+        headers={"X-Admin-API-Key": "audit-secret"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert wrong_owner.status_code == 403
+    assert owner.status_code == 200
+    assert admin.status_code == 200
 
 
 def test_analyze_audio_rejects_non_audio_upload():
@@ -135,6 +204,24 @@ def test_analyze_audio_rejects_non_audio_upload():
     )
 
     assert response.status_code == 415
+
+
+def test_analyze_audio_rejects_octet_stream_non_audio_upload():
+    response = client.post(
+        "/analyze-audio?call_id=audit-bad-octet",
+        files={"audio": ("note.txt", b"not audio", "application/octet-stream")},
+    )
+
+    assert response.status_code == 415
+
+
+def test_analyze_audio_rejects_corrupt_wav_payload():
+    response = client.post(
+        "/analyze-audio?call_id=audit-corrupt-wav",
+        files={"audio": ("broken.wav", b"not a wav", "audio/wav")},
+    )
+
+    assert response.status_code == 400
 
 
 def test_deepfake_detector_ignores_no_speech_audio(monkeypatch, tmp_path):
@@ -195,6 +282,45 @@ def test_audio_deepfake_signal_needs_text_corroboration(monkeypatch):
     assert result.risk_score == 0.0
     assert result.audio_analysis["used_in_fusion"] is False
     assert result.audio_analysis["fusion_gate"] == "held_for_text_corroboration"
+
+
+def test_kidnapping_extortion_phrase_triggers_family_emergency():
+    analysis = ScamLanguageEngine().analyze("Send money now, your child is with us.")
+
+    assert analysis.scam_score >= 0.75
+    assert analysis.scam_type is ScamType.FAMILY_EMERGENCY
+
+
+def test_hinglish_kidnapping_extortion_phrase_triggers_family_emergency():
+    analysis = ScamLanguageEngine().analyze("Paise bhejo abhi, tumhara bachcha hamare paas hai.")
+
+    assert analysis.scam_score >= 0.75
+    assert analysis.scam_type is ScamType.FAMILY_EMERGENCY
+
+
+def test_direct_payment_pressure_from_asr_triggers_upi_review():
+    result = CallShieldSDK().analyze_transcript("Send me money please.")
+
+    assert result.risk_score >= 31
+    assert result.risk_band == "suspicious"
+    assert result.warning_level == "soft"
+    assert result.scam_type == ScamType.UPI_PAYMENT_REQUEST.value
+
+
+def test_send_money_now_triggers_upi_review():
+    result = CallShieldSDK().analyze_transcript("Please send money now.")
+
+    assert result.risk_score >= 31
+    assert result.risk_band == "suspicious"
+    assert result.scam_type == ScamType.UPI_PAYMENT_REQUEST.value
+
+
+def test_benign_college_fee_money_request_stays_safe():
+    result = CallShieldSDK().analyze_transcript(
+        "Dad, can you send me some money for my college fees? It is Rs 15000 this semester."
+    )
+
+    assert result.risk_band == "safe"
 
 
 def test_asr_suppresses_repeated_non_target_language_hallucination():

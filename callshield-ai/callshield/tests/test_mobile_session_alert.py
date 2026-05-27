@@ -98,3 +98,65 @@ def test_session_alert_analyzer_summarizes_high_risk_session(tmp_path):
         check=True,
         cwd=repo,
     )
+
+
+def test_session_alert_analyzer_does_not_audio_review_silent_call(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    source = (
+        repo
+        / "android"
+        / "CallShieldMobile"
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "SessionAlertAnalyzer.java"
+    )
+    test_file = tmp_path / "SessionAlertAnalyzerSilentCallTest.java"
+    test_file.write_text(
+        textwrap.dedent(
+            """
+            import ai.callshield.mobile.SessionAlertAnalyzer;
+
+            public final class SessionAlertAnalyzerSilentCallTest {
+                public static void main(String[] args) {
+                    SessionAlertAnalyzer analyzer = new SessionAlertAnalyzer();
+                    analyzer.addChunk(0.0, "safe", "none", "unknown", "", 1.0, false);
+                    analyzer.addChunk(0.0, "safe", "none", "unknown", "", 0.97, false);
+                    SessionAlertAnalyzer.SessionSummary summary = analyzer.summarize();
+
+                    if (!"NO CALL AUDIO".equals(summary.alertTitle)) {
+                        throw new AssertionError(summary.alertTitle + "\\n" + summary.toDialogMessage());
+                    }
+                    if (summary.maxDeepfakeScore != 0.0) {
+                        throw new AssertionError(summary.toDialogMessage());
+                    }
+                    if (!summary.toDialogMessage().contains("did not hear usable speech")) {
+                        throw new AssertionError(summary.toDialogMessage());
+                    }
+                }
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            _javac(),
+            "-d",
+            str(tmp_path),
+            str(source),
+            str(test_file),
+        ],
+        check=True,
+        cwd=repo,
+    )
+    subprocess.run(
+        [_java(), "-cp", str(tmp_path), "SessionAlertAnalyzerSilentCallTest"],
+        check=True,
+        cwd=repo,
+    )

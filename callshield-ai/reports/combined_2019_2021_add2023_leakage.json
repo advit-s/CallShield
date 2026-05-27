@@ -1,0 +1,113 @@
+{
+  "version": "2.3.5",
+  "rows": {
+    "train": 112084,
+    "val": 80344,
+    "test": 80346
+  },
+  "duplicate_paths": {
+    "train_vs_val": {
+      "count": 0,
+      "examples": []
+    },
+    "train_vs_test": {
+      "count": 0,
+      "examples": []
+    },
+    "val_vs_test": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "duplicate_file_stems": {
+    "train_vs_val": {
+      "count": 0,
+      "examples": []
+    },
+    "train_vs_test": {
+      "count": 0,
+      "examples": []
+    },
+    "val_vs_test": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "speaker_overlap": {
+    "train_vs_val": {
+      "count": 93,
+      "examples": [
+        "LA_0001",
+        "LA_0002",
+        "LA_0003",
+        "LA_0004",
+        "LA_0005",
+        "LA_0006",
+        "LA_0007",
+        "LA_0008",
+        "LA_0009",
+        "LA_0010"
+      ]
+    },
+    "train_vs_test": {
+      "count": 92,
+      "examples": [
+        "LA_0001",
+        "LA_0002",
+        "LA_0003",
+        "LA_0004",
+        "LA_0005",
+        "LA_0006",
+        "LA_0007",
+        "LA_0008",
+        "LA_0009",
+        "LA_0010"
+      ]
+    },
+    "val_vs_test": {
+      "count": 92,
+      "examples": [
+        "LA_0001",
+        "LA_0002",
+        "LA_0003",
+        "LA_0004",
+        "LA_0005",
+        "LA_0006",
+        "LA_0007",
+        "LA_0008",
+        "LA_0009",
+        "LA_0010"
+      ]
+    }
+  },
+  "source_overlap": {
+    "train_vs_val": {
+      "count": 3,
+      "examples": [
+        "add2023_track1_2",
+        "asvspoof2019",
+        "asvspoof2021_df"
+      ]
+    },
+    "train_vs_test": {
+      "count": 3,
+      "examples": [
+        "add2023_track1_2",
+        "asvspoof2019",
+        "asvspoof2021_df"
+      ]
+    },
+    "val_vs_test": {
+      "count": 3,
+      "examples": [
+        "add2023_track1_2",
+        "asvspoof2019",
+        "asvspoof2021_df"
+      ]
+    }
+  },
+  "duplicate_audio_hashes": {},
+  "hash_audio": false,
+  "leakage_found": true,
+  "ready_for_final_reporting": false
+}

@@ -1,40 +1,147 @@
 /.claude
 
-# Local datasets
+# Local datasets for training/evaluation. Keep on disk, do not push to GitHub.
 /ASVspoof_2019_LA/
 /ASVspoof_2021_DF/
+/ADD 2023/
+/In-The-Wild/
+/Indian_Multilingual_Scam_Message_Dataset/
+/SMS_Spam_Multilingual_Collection_Dataset/
+/WaveFake/
+/sms-otp-spam-dataset/
 
-# Python caches and virtual environments
+# Python caches, packaging output, and virtual environments
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
 .pytest_cache/
+.hypothesis/
 .mypy_cache/
 .ruff_cache/
+.pyre/
 .venv/
 venv/
 env/
-htmlcov/
-.coverage
+ENV/
 
-# Local IDE / OS files
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+local_settings.py
+db.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+callshield.db
+
+# IDE / OS files
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 
-# CallShield generated ML artifacts
+# Temporary files
+*.tmp
+*.tmp.*
+*.bak
+*.log
+
+# Generated distributables. Keep APKs locally for demos, do not push them.
+/dist/
+/*.apk
+/*.aab
+/*.ap_
+/cloudflared.exe
+
+# Raw media, generated captures, and uploads
+*.wav
+*.mp3
+*.mp4
+*.flac
+/callshield-ai/web/static/uploads/
+/callshield-ai/samples/
+/callshield-ai/captures/
+/callshield-ai/recordings/
+
+# Local ML dataset split files and generated CSVs. Keep locally for retraining.
+/callshield-ai/data/deepfake*/
+/callshield-ai/data/deepfake_*/
+/callshield-ai/data/**/train.csv
+/callshield-ai/data/**/val.csv
+/callshield-ai/data/**/test.csv
+
+# Model binaries and downloaded Hugging Face caches. Keep locally for retraining/demo.
 /callshield-ai/models/hf_cache/
 /callshield-ai/models/hf_asr/
+/callshield-ai/models/archives/
 /callshield-ai/models/*.pt
 /callshield-ai/models/*.pth
 /callshield-ai/models/*.ckpt
 /callshield-ai/models/*.onnx
 /callshield-ai/models/*.safetensors
-/callshield-ai/samples/
-/callshield-ai/data/deepfake*/
-/callshield-ai/data/deepfake_*/
+/callshield-ai/models/**/*.pt
+/callshield-ai/models/**/*.pth
+/callshield-ai/models/**/*.ckpt
+/callshield-ai/models/**/*.onnx
+/callshield-ai/models/**/*.safetensors
+/callshield-ai/models/**/*.bin
+/callshield-ai/models/**/*.msgpack
+/callshield-ai/models/**/*.h5
+/callshield-ai/models/**/*.tflite
+!/callshield-ai/models/model_manifest.json
+!/callshield-ai/models/*calibration*.json
 
-# Android generated output
-/callshield-ai/android/CallShieldMobile/.gradle/
-/callshield-ai/android/CallShieldMobile/build/
-/callshield-ai/android/CallShieldMobile/app/build/
+# Generated evaluation scratch files. Curated JSON reports can remain tracked.
+/callshield-ai/reports/*.csv
+/callshield-ai/reports/*.log
+/callshield-ai/reports/*.err.log
+/callshield-ai/reports/*_tmp.json
+/callshield-ai/reports/*_scratch.json
+/callshield-ai/reports/hf_synthetic_*.json
+/callshield-ai/reports/deepfake_add2023_*.json
+/callshield-ai/reports/deepfake_*_retrained*.json
+/callshield-ai/reports/deepfake_smoke_*.json
+
+# One-off local audit/research notes that are useful privately but noisy on GitHub.
+/AUDIT_REPORT*.md
+/deep-research-report.md
+/callshield-ai/AUDIT_REPORT*.md
+
+# Android generated output and machine-local config
+/callshield-ai/android/**/.gradle/
+/callshield-ai/android/**/.idea/
+/callshield-ai/android/**/.kotlin/
+/callshield-ai/android/**/.cxx/
+/callshield-ai/android/**/.externalNativeBuild/
+/callshield-ai/android/**/build/
+/callshield-ai/android/**/app/build/
+/callshield-ai/android/**/captures/
+/callshield-ai/android/**/local.properties
+/callshield-ai/android/**/*.apk
+/callshield-ai/android/**/*.aab
+/callshield-ai/android/**/*.ap_
+/callshield-ai/android/**/*.dex
+/callshield-ai/android/**/*.iml
+/callshield-ai/android/**/*.jks
+/callshield-ai/android/**/*.keystore
+/callshield-ai/android/**/key.properties

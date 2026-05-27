@@ -1,4 +1,4 @@
-"""CallShield API Server v2.3.5 - Evaluation Hygiene & Model Selection.
+"""CallShield API Server v2.4.0 - Mobile ASR and Scam NLP Hardening.
 
 Endpoints:
   POST /analyze-transcript       Analyze text with confidence & calibration
@@ -32,6 +32,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 # Use proper package imports (not sys.path hacks)
 from callshield.sdk import CallShieldSDK, CallShieldResult
 from callshield.engine.privacy import PrivacyLayer
+from callshield.engine.db import CallShieldDatabase
+from callshield.engine.asr import (
+    DEFAULT_HF_ASR_MODEL,
+    default_hf_asr_root,
+    resolve_hf_asr_model,
+)
 from callshield.api.schemas import (
     TranscriptRequest, AudioRequest, ScoreCallRequest,
     RiskResult, RiskBand, SpeakerRequest, SpeakerResponse,
@@ -40,13 +46,16 @@ from callshield.api.schemas import (
     DataDeletionResponse, UserDataDeletionResponse
 )
 
+# Initialize database persistence layer
+db = CallShieldDatabase()
+
 # ---- In-memory stores (use persistent DB in production) ----
 CALL_HISTORY: Dict[str, Dict] = {}    # call_id -> call data
 FEEDBACK_STORE: Dict[str, Dict] = {}  # call_id -> user feedback
 START_TIME = time.time()
-APP_VERSION = "2.3.5"
-APP_TITLE = "CallShield AI v2.3.5"
-APP_RELEASE = "Deepfake Evaluation Hardening"
+APP_VERSION = "2.4.0"
+APP_TITLE = "CallShield AI v2.4.0"
+APP_RELEASE = "Mobile ASR and Scam NLP Hardening"
 DEBUG_MODE = os.environ.get("CALLSHIELD_DEBUG", "false").lower() == "true"
 MAX_AUDIO_UPLOAD_BYTES = int(os.environ.get("CALLSHIELD_MAX_AUDIO_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 ALLOWED_AUDIO_CONTENT_TYPES = {
@@ -59,9 +68,9 @@ ALLOWED_AUDIO_CONTENT_TYPES = {
     "audio/ogg",
     "audio/flac",
     "audio/webm",
-    "application/octet-stream",
 }
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac"}
+OCTET_STREAM_CONTENT_TYPE = "application/octet-stream"
 
 
 def _cors_origins() -> List[str]:
@@ -115,31 +124,56 @@ def _env_true(name: str, default: str = "false") -> bool:
     return os.environ.get(name, default).lower() in {"1", "true", "yes", "on"}
 
 
+def _store_transcripts_enabled() -> bool:
+    return _env_true("STORE_TRANSCRIPTS")
+
+
+def _admin_key_matches(x_admin_api_key: Optional[str]) -> bool:
+    if os.environ.get("CALLSHIELD_DEMO_MODE", "false").lower() == "true":
+        return True
+    expected = os.environ.get("CALLSHIELD_ADMIN_KEY")
+    return bool(expected and x_admin_api_key == expected)
+
+
+def _asr_runtime_config() -> Dict[str, Any]:
+    """Resolve the ASR backend; prefer the local Hindi/Hinglish snapshot when present."""
+    requested_model = os.environ.get("CALLSHIELD_HF_ASR_MODEL", DEFAULT_HF_ASR_MODEL)
+    local_dir = os.environ.get("CALLSHIELD_HF_ASR_LOCAL_DIR")
+    local_model = resolve_hf_asr_model(
+        model_name=requested_model,
+        local_dir=local_dir,
+        local_root=default_hf_asr_root(),
+        prefer_local=_env_true("CALLSHIELD_HF_ASR_PREFER_LOCAL", "true"),
+    )
+
+    backend = os.environ.get("CALLSHIELD_ASR_BACKEND")
+    if not backend:
+        backend = "huggingface" if Path(local_model).exists() else "openai_whisper"
+
+    if backend == "huggingface":
+        return {
+            "backend": backend,
+            "model_name": local_model,
+            "local_files_only": _env_true("CALLSHIELD_ASR_OFFLINE") or Path(local_model).exists(),
+        }
+
+    return {
+        "backend": backend,
+        "model_name": os.environ.get("CALLSHIELD_WHISPER_MODEL", "base"),
+        "local_files_only": False,
+    }
+
+
 def _get_asr():
     """Lazy-load Whisper once instead of reloading it for every upload."""
     global _ASR_INSTANCE
     if _ASR_INSTANCE is None:
-        from callshield.engine.asr import (
-            ASRTranscriber,
-            DEFAULT_HF_ASR_MODEL,
-            resolve_hf_asr_model,
-        )
-        backend = os.environ.get("CALLSHIELD_ASR_BACKEND", "openai_whisper")
-        if backend == "huggingface":
-            requested_model = os.environ.get("CALLSHIELD_HF_ASR_MODEL", DEFAULT_HF_ASR_MODEL)
-            model_name = resolve_hf_asr_model(
-                model_name=requested_model,
-                local_dir=os.environ.get("CALLSHIELD_HF_ASR_LOCAL_DIR"),
-                prefer_local=_env_true("CALLSHIELD_HF_ASR_PREFER_LOCAL", "true"),
-            )
-            local_files_only = _env_true("CALLSHIELD_ASR_OFFLINE") or Path(model_name).exists()
-        else:
-            model_name = os.environ.get("CALLSHIELD_WHISPER_MODEL", "base")
-            local_files_only = False
+        from callshield.engine.asr import ASRTranscriber
+        config = _asr_runtime_config()
         _ASR_INSTANCE = ASRTranscriber(
-            model_name=model_name,
-            backend=backend,
-            local_files_only=local_files_only,
+            model_name=config["model_name"],
+            backend=config["backend"],
+            local_files_only=config["local_files_only"],
         )
     return _ASR_INSTANCE
 
@@ -147,12 +181,17 @@ def _get_asr():
 def _validate_audio_upload(audio: UploadFile) -> str:
     suffix = Path(audio.filename or "").suffix.lower()
     content_type = (audio.content_type or "").lower()
-    if suffix not in ALLOWED_AUDIO_EXTENSIONS and content_type not in ALLOWED_AUDIO_CONTENT_TYPES:
+    if suffix not in ALLOWED_AUDIO_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Unsupported audio upload type. Use wav, mp3, m4a, ogg, flac, webm, or aac.",
         )
-    return suffix if suffix in ALLOWED_AUDIO_EXTENSIONS else ".wav"
+    if content_type and content_type not in ALLOWED_AUDIO_CONTENT_TYPES and content_type != OCTET_STREAM_CONTENT_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio upload content type.",
+        )
+    return suffix
 
 
 def _spectrogram_preview(audio_path: str) -> Dict[str, Any]:
@@ -179,12 +218,23 @@ async def _read_audio_upload(audio: UploadFile) -> bytes:
     return payload
 
 
+def _validate_audio_payload(suffix: str, payload: bytes) -> None:
+    """Reject obviously mislabeled audio before ASR/deepfake libraries touch it."""
+    checks = {
+        ".wav": lambda p: len(p) >= 12 and p[:4] == b"RIFF" and p[8:12] == b"WAVE",
+        ".flac": lambda p: p.startswith(b"fLaC"),
+        ".ogg": lambda p: p.startswith(b"OggS"),
+        ".webm": lambda p: p.startswith(b"\x1a\x45\xdf\xa3"),
+        ".mp3": lambda p: p.startswith(b"ID3") or (len(p) >= 2 and p[0] == 0xFF and (p[1] & 0xE0) == 0xE0),
+    }
+    checker = checks.get(suffix)
+    if checker and not checker(payload):
+        raise HTTPException(status_code=400, detail="Invalid audio payload for declared file type")
+
+
 def require_admin_key(x_admin_api_key: Optional[str] = Header(None, alias="X-Admin-API-Key")) -> None:
     """Require an admin key for destructive demo-memory data deletion endpoints."""
-    expected = os.environ.get("CALLSHIELD_ADMIN_KEY")
-    if os.environ.get("CALLSHIELD_DEMO_MODE", "false").lower() == "true":
-        return
-    if not expected or x_admin_api_key != expected:
+    if not _admin_key_matches(x_admin_api_key):
         raise HTTPException(status_code=401, detail="Admin API key required")
 
 
@@ -228,6 +278,7 @@ async def health():
 async def model_status():
     """Show which modules are trained, implemented, or pending."""
     status = sdk.get_model_status()
+    asr_config = _asr_runtime_config()
     return ModelStatusResponse(
         version=APP_VERSION,
         release=APP_RELEASE,
@@ -255,8 +306,9 @@ async def model_status():
             "asr": {
                 "status": status["asr"],
                 "description": "ASR via OpenAI Whisper or offline Hugging Face snapshot",
-                "backend": os.environ.get("CALLSHIELD_ASR_BACKEND", "openai_whisper"),
-                "offline": str(_env_true("CALLSHIELD_ASR_OFFLINE")).lower(),
+                "backend": asr_config["backend"],
+                "model": asr_config["model_name"],
+                "offline": str(asr_config["local_files_only"]).lower(),
             },
             "deepfake": {
                 "status": status["deepfake"],
@@ -322,7 +374,8 @@ async def analyze_transcript(req: TranscriptRequest):
 @app.post("/analyze-audio", tags=["Analysis"], response_model=RiskResult)
 async def analyze_audio(call_id: str, audio: UploadFile = File(...),
                         user_id: Optional[str] = None,
-                        enrolled_speaker_id: Optional[str] = None):
+                        enrolled_speaker_id: Optional[str] = None,
+                        include_transcript: bool = False):
     """
     Analyze uploaded audio.
 
@@ -338,6 +391,7 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
     try:
         suffix = _validate_audio_upload(audio)
         payload = await _read_audio_upload(audio)
+        _validate_audio_payload(suffix, payload)
 
         # Save audio to temporary file (not permanent storage)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -348,8 +402,8 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
         asr_result = _get_asr().transcribe(temp_path)
         spectrogram = _spectrogram_preview(temp_path)
         transcript = asr_result.get("text", "")
+        return_live_transcript = include_transcript or _store_transcripts_enabled()
         asr_debug = {
-            "transcript": transcript,
             "language": asr_result.get("language"),
             "status": asr_result.get("status", "unknown"),
             "error": asr_result.get("error"),
@@ -358,6 +412,8 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             "segment_count": len(asr_result.get("segments", [])),
             "heard_speech": bool(transcript.strip()),
         }
+        if return_live_transcript:
+            asr_debug["transcript"] = transcript
 
         # Run analysis on the audio and transcript
         result = sdk.analyze_audio(
@@ -365,6 +421,14 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             transcript=transcript,
             speaker_id=enrolled_speaker_id
         )
+        raw_components = {
+            **result.raw_components,
+            "audio": result.audio_analysis,
+            "asr": asr_debug,
+            "spectrogram": spectrogram,
+        }
+        if return_live_transcript:
+            raw_components["transcript"] = transcript
 
         response = RiskResult(
             call_id=call_id,
@@ -378,26 +442,23 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             detected_cues=result.detected_cues,
             explanation=(
                 result.explanation + f" [Transcript: {transcript[:100]}]"
-                if os.environ.get("INCLUDE_TRANSCRIPT_PREVIEW", "false").lower() == "true" and transcript
+                if _env_true("INCLUDE_TRANSCRIPT_PREVIEW") and _store_transcripts_enabled() and transcript
                 else result.explanation
             ),
             recommended_action=result.recommended_action,
             why_flagged=result.why_flagged,
             challenges=[{"question": c["question"], "why": c["why"]}
                         for c in result.challenges],
-            raw_components={
-                **result.raw_components,
-                "audio": result.audio_analysis,
-                "asr": asr_debug,
-                "spectrogram": spectrogram,
-                "transcript": transcript,
-            },
+            raw_components=raw_components,
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
             timestamp=datetime.now().isoformat()
         )
 
-        store_call(call_id, user_id, response.model_dump(), transcript=transcript)
+        response_dump = response.model_dump()
+        if not _store_transcripts_enabled():
+            response_dump = _without_transcript_fields(response_dump)
+        store_call(call_id, user_id, response_dump, transcript=transcript)
         return response
 
     except HTTPException:
@@ -507,6 +568,7 @@ async def verify_speaker(req: SpeakerRequest):
                    "This is a biometric voiceprint and requires consent under "
                    "India's DPDP Act, 2023 and similar privacy regulations."
         )
+    db.store_speaker(req.speaker_id, req.name, req.consent_given)
     return SpeakerResponse(
         status="consent_recorded",
         speaker_id=req.speaker_id,
@@ -525,19 +587,28 @@ async def submit_feedback(req: FeedbackRequest):
     Feedback is stored for manual review and periodic evaluation.
     It is NOT used for automatic retraining (to prevent abuse).
     """
-    if req.call_id not in CALL_HISTORY:
+    call_record = db.get_call(req.call_id)
+    if not call_record:
         raise HTTPException(status_code=404, detail="Call ID not found")
 
-    FEEDBACK_STORE[req.call_id] = {
+    db.store_feedback(
+        call_id=req.call_id,
+        is_scam=req.is_scam,
+        notes=req.feedback_notes,
+        reported_cues=req.reported_cues or []
+    )
+
+    # Sync back to in-memory dictionary for backward compatibility
+    feedback_data = {
         "call_id": req.call_id,
         "is_scam": req.is_scam,
         "feedback_notes": req.feedback_notes,
         "reported_cues": req.reported_cues,
         "timestamp": datetime.now().isoformat(),
     }
-
-    # Link to call history
-    CALL_HISTORY[req.call_id]["user_feedback"] = FEEDBACK_STORE[req.call_id]
+    FEEDBACK_STORE[req.call_id] = feedback_data
+    if req.call_id in CALL_HISTORY:
+        CALL_HISTORY[req.call_id]["user_feedback"] = FEEDBACK_STORE[req.call_id]
 
     return {
         "status": "feedback_recorded",
@@ -556,14 +627,19 @@ async def delete_call_summary(
     _: None = Depends(require_admin_key),
 ):
     """Permanently delete a call summary (Right to Erasure for a specific call)."""
-    if call_id not in CALL_HISTORY:
+    data = db.get_call(call_id)
+    if not data:
         raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found")
 
     # Optional: verify user owns this call
-    if user_id and CALL_HISTORY[call_id].get("user_id") != user_id:
+    if user_id and data.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="User does not own this call record")
 
-    del CALL_HISTORY[call_id]
+    db.delete_call(call_id)
+
+    # Sync back to in-memory
+    if call_id in CALL_HISTORY:
+        del CALL_HISTORY[call_id]
     if call_id in FEEDBACK_STORE:
         del FEEDBACK_STORE[call_id]
 
@@ -584,13 +660,14 @@ async def delete_user_data(user_id: str, _: None = Depends(require_admin_key)):
     - All feedback from this user
     - All enrolled speaker data
     """
-    deleted_calls = 0
+    deleted_calls = db.delete_user_data(user_id)
+
+    # Sync back to in-memory
     for call_id, data in list(CALL_HISTORY.items()):
         if data.get("user_id") == user_id:
             del CALL_HISTORY[call_id]
             if call_id in FEEDBACK_STORE:
                 del FEEDBACK_STORE[call_id]
-            deleted_calls += 1
 
     return UserDataDeletionResponse(
         user_id=user_id,
@@ -601,12 +678,23 @@ async def delete_user_data(user_id: str, _: None = Depends(require_admin_key)):
 
 
 @app.get("/call-summary/{call_id}", tags=["Analysis"], response_model=CallSummaryResponse)
-async def call_summary(call_id: str):
+async def call_summary(
+    call_id: str,
+    user_id: Optional[str] = None,
+    x_admin_api_key: Optional[str] = Header(None, alias="X-Admin-API-Key"),
+):
     """Get the full analysis report for a specific call."""
-    if call_id not in CALL_HISTORY:
+    data = db.get_call(call_id)
+    if not data:
         raise HTTPException(status_code=404, detail=f"Call '{call_id}' not found")
 
-    data = CALL_HISTORY[call_id]
+    stored_user_id = data.get("user_id")
+    if not _admin_key_matches(x_admin_api_key):
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID or admin API key required")
+        if stored_user_id != user_id:
+            raise HTTPException(status_code=403, detail="User does not own this call record")
+
     result = data["result"]
 
     return CallSummaryResponse(
@@ -642,18 +730,41 @@ async def demo_page():
 
 def store_call(call_id: str, user_id: Optional[str], result: Dict,
                transcript: Optional[str] = None) -> None:
-    """Store a call result in CALL_HISTORY."""
+    """Store a call result in database and CALL_HISTORY."""
+    # Only store transcript if enabled (privacy default)
+    store_transcripts = os.environ.get("STORE_TRANSCRIPTS", "false").lower() == "true"
+
+    # Store to SQLite database
+    db.store_call(
+        call_id=call_id,
+        user_id=user_id,
+        result=result,
+        transcript=transcript if store_transcripts else None
+    )
+
+    # Sync back to in-memory CALL_HISTORY for backward compatibility
     CALL_HISTORY[call_id] = {
         "user_id": user_id,
         "result": result,
         "timestamp": datetime.now().isoformat(),
         "total_chunks": 1,
     }
-
-    # Only store transcript if enabled (privacy default)
-    store_transcripts = os.environ.get("STORE_TRANSCRIPTS", "false").lower() == "true"
     if store_transcripts and transcript:
         CALL_HISTORY[call_id]["transcript"] = transcript
+
+
+def _without_transcript_fields(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove raw transcript fields before storing privacy-default call summaries."""
+    sanitized = dict(result)
+    raw_components = dict(sanitized.get("raw_components") or {})
+    raw_components.pop("transcript", None)
+    asr = raw_components.get("asr")
+    if isinstance(asr, dict):
+        safe_asr = dict(asr)
+        safe_asr.pop("transcript", None)
+        raw_components["asr"] = safe_asr
+    sanitized["raw_components"] = raw_components
+    return sanitized
 
 
 # === Run ===

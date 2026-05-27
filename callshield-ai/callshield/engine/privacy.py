@@ -23,6 +23,8 @@ class PrivacyLayer:
         # Normalize: remove non-digits
         normalized = ''.join(c for c in phone if c.isdigit())
         pepper = os.environ.get("CALLSHIELD_PHONE_PEPPER", "callshield_dev_phone_pepper_change_me")
+        if os.environ.get("CALLSHIELD_ENV", "development").lower() == "production" and pepper == "callshield_dev_phone_pepper_change_me":
+            raise RuntimeError("PRODUCTION SECURITY VIOLATION: Default CALLSHIELD_PHONE_PEPPER pepper cannot be used in production.")
         return hmac.new(pepper.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
 
     @staticmethod

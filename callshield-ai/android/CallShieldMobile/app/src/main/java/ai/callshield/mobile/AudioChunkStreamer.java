@@ -67,12 +67,15 @@ final class AudioChunkStreamer {
         }
 
         int bufferSize = Math.max(minBuffer * 2, SAMPLE_RATE * BYTES_PER_SAMPLE);
-        audioRecord = buildRecorder(MediaRecorder.AudioSource.MIC, bufferSize);
-        if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-            audioRecord = buildRecorder(MediaRecorder.AudioSource.CAMCORDER, bufferSize);
-        }
+        audioRecord = buildRecorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION, bufferSize);
         if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
             audioRecord = buildRecorder(MediaRecorder.AudioSource.VOICE_RECOGNITION, bufferSize);
+        }
+        if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            audioRecord = buildRecorder(MediaRecorder.AudioSource.MIC, bufferSize);
+        }
+        if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            audioRecord = buildRecorder(MediaRecorder.AudioSource.CAMCORDER, bufferSize);
         }
         if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
             listener.onError(new IllegalStateException("Could not initialize microphone recorder"));
@@ -87,7 +90,7 @@ final class AudioChunkStreamer {
 
         try {
             audioRecord.startRecording();
-            listener.onStatus("Recording microphone chunks at 16 kHz");
+            listener.onStatus("Recording call-assist microphone chunks at 16 kHz");
 
             while (running) {
                 int read = audioRecord.read(buffer, 0, buffer.length);

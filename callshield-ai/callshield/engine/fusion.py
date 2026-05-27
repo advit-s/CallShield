@@ -162,7 +162,7 @@ class RiskFusionEngine:
                 "urgency": round(signals.urgency, 3),
                 "verification_failed": signals.verification_failed,
                 "rule_bonus": round(signals.rule_bonus, 3),
-                "weights": self.weights,
+                "weights": dict(self.weights),
             }
         )
 
@@ -228,4 +228,4 @@ class RiskFusionEngine:
             cues.append("Failed verification challenge")
         if signals.rule_bonus > 0.15:
             cues.append("Multiple red flags detected")
-        return cues or ["No scam signals detected"]
+        return cues

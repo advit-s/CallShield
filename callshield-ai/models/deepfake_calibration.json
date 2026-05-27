@@ -1,65 +1,170 @@
 {
   "version": "2.3.5",
   "status": "calibrated",
-  "created_at": "2026-05-21T09:37:05.905894",
-  "model_path": "models\\deepfake_mel_cnn.pt",
-  "operating_threshold": 0.1978759765625,
-  "soft_audio_threshold": 0.1978759765625,
+  "created_at": "2026-05-27T02:36:48.068255",
+  "model_path": "models\\archives\\deepfake_mel_cnn_combined_2019_2021_add2023.pt",
+  "operating_threshold": 0.161376953125,
+  "soft_audio_threshold": 0.161376953125,
   "hard_audio_threshold": 0.5,
   "target_fpr": 0.1,
-  "calibration_source": "reports\\deepfake_2021_same_domain.json",
-  "note": "Two-tier audio threshold profile: below soft is ignored, soft-to-hard is weak audio evidence, hard and above is strong deepfake evidence.",
+  "calibration_source": "reports\\combined_on_asvspoof2021_balanced.json",
+  "note": "Conservative calibrated threshold. Scores below this threshold are not used as a deepfake fusion signal.",
   "primary_report": {
     "report": "data\\deepfake_2021_finetune\\test.csv",
-    "files": 10000,
-    "roc_auc": 0.9979459975038396,
-    "eer": 0.020698491883719063,
-    "eer_threshold": 0.64990234375,
+    "files": 4000,
+    "roc_auc": 0.998496125,
+    "eer": 0.018,
+    "eer_threshold": 0.61962890625,
     "default_threshold": {
       "threshold": 0.5,
-      "fpr": 0.039189784236019376,
-      "recall": 0.9853797386466554,
-      "f1": 0.9869120124400673
+      "fpr": 0.0305,
+      "recall": 0.988,
+      "f1": 0.9789447609611097
     },
     "target_fpr": {
       "target": 0.1,
-      "threshold": 0.1978759765625,
-      "accuracy": 0.974,
-      "precision": 0.9714682489584648,
-      "recall": 0.9956009833096131,
-      "f1": 0.9833865814696484,
-      "false_positive_rate": 0.09951563188022898,
-      "false_negative_rate": 0.004399016690386855,
+      "threshold": 0.161376953125,
+      "accuracy": 0.95,
+      "precision": 0.9117108874656907,
+      "recall": 0.9965,
+      "f1": 0.9522216913521262,
+      "false_positive_rate": 0.0965,
+      "false_negative_rate": 0.0035,
       "confusion_matrix": {
-        "tp": 7695,
-        "tn": 2045,
-        "fp": 226,
-        "fn": 34
+        "tp": 1993,
+        "tn": 1807,
+        "fp": 193,
+        "fn": 7
       },
-      "true_positives": 7695,
-      "true_negatives": 2045,
-      "false_positives": 226,
-      "false_negatives": 34
+      "true_positives": 1993,
+      "true_negatives": 1807,
+      "false_positives": 193,
+      "false_negatives": 7
     },
     "best_f1": {
-      "threshold": 0.4033203125,
-      "accuracy": 0.98,
-      "precision": 0.9850534724906584,
-      "recall": 0.9891318411178678,
-      "f1": 0.987088444157521,
-      "false_positive_rate": 0.05107881990312638,
-      "false_negative_rate": 0.01086815888213223,
+      "threshold": 0.8076171875,
+      "accuracy": 0.98325,
+      "precision": 0.9943734015345268,
+      "recall": 0.972,
+      "f1": 0.9830594184576484,
+      "false_positive_rate": 0.0055,
+      "false_negative_rate": 0.028,
       "confusion_matrix": {
-        "tp": 7645,
-        "tn": 2155,
-        "fp": 116,
-        "fn": 84
+        "tp": 1944,
+        "tn": 1989,
+        "fp": 11,
+        "fn": 56
       },
-      "true_positives": 7645,
-      "true_negatives": 2155,
-      "false_positives": 116,
-      "false_negatives": 84
+      "true_positives": 1944,
+      "true_negatives": 1989,
+      "false_positives": 11,
+      "false_negatives": 56
     }
   },
-  "secondary_reports": []
+  "secondary_reports": [
+    {
+      "report": "data\\deepfake\\test.csv",
+      "files": 5000,
+      "roc_auc": 0.9912584173416198,
+      "eer": 0.04444923683909296,
+      "eer_threshold": 0.224365234375,
+      "default_threshold": {
+        "threshold": 0.5,
+        "fpr": 0.021183345507669833,
+        "recall": 0.9383090057835307,
+        "f1": 0.9641998018961369
+      },
+      "target_fpr": {
+        "target": 0.1,
+        "threshold": 0.07080078125,
+        "accuracy": 0.9518,
+        "precision": 0.9628618241398144,
+        "recall": 0.97108234646103,
+        "f1": 0.9669546140134374,
+        "false_positive_rate": 0.09934258582907232,
+        "false_negative_rate": 0.02891765353896998,
+        "confusion_matrix": {
+          "tp": 3526,
+          "tn": 1233,
+          "fp": 136,
+          "fn": 105
+        },
+        "true_positives": 3526,
+        "true_negatives": 1233,
+        "false_positives": 136,
+        "false_negatives": 105
+      },
+      "best_f1": {
+        "threshold": 0.11126708984375,
+        "accuracy": 0.9562,
+        "precision": 0.9720531267293857,
+        "recall": 0.9675020655466814,
+        "f1": 0.9697722567287785,
+        "false_positive_rate": 0.07377647918188458,
+        "false_negative_rate": 0.032497934453318646,
+        "confusion_matrix": {
+          "tp": 3513,
+          "tn": 1268,
+          "fp": 101,
+          "fn": 118
+        },
+        "true_positives": 3513,
+        "true_negatives": 1268,
+        "false_positives": 101,
+        "false_negatives": 118
+      }
+    },
+    {
+      "report": "data\\deepfake_add2023\\test.csv",
+      "files": 2000,
+      "roc_auc": 0.9997305,
+      "eer": 0.009,
+      "eer_threshold": 0.986328125,
+      "default_threshold": {
+        "threshold": 0.5,
+        "fpr": 0.051,
+        "recall": 1.0,
+        "f1": 0.9751340809361287
+      },
+      "target_fpr": {
+        "target": 0.1,
+        "threshold": 0.86669921875,
+        "accuracy": 0.9865,
+        "precision": 0.9737098344693281,
+        "recall": 1.0,
+        "f1": 0.9866798223976319,
+        "false_positive_rate": 0.027,
+        "false_negative_rate": 0.0,
+        "confusion_matrix": {
+          "tp": 1000,
+          "tn": 973,
+          "fp": 27,
+          "fn": 0
+        },
+        "true_positives": 1000,
+        "true_negatives": 973,
+        "false_positives": 27,
+        "false_negatives": 0
+      },
+      "best_f1": {
+        "threshold": 0.99267578125,
+        "accuracy": 0.993,
+        "precision": 0.9969758064516129,
+        "recall": 0.989,
+        "f1": 0.9929718875502007,
+        "false_positive_rate": 0.003,
+        "false_negative_rate": 0.011,
+        "confusion_matrix": {
+          "tp": 989,
+          "tn": 997,
+          "fp": 3,
+          "fn": 11
+        },
+        "true_positives": 989,
+        "true_negatives": 997,
+        "false_positives": 3,
+        "false_negatives": 11
+      }
+    }
+  ]
 }

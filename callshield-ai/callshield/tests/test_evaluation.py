@@ -47,7 +47,7 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
     }
 
     print(f"{'='*70}")
-    print(f"  CallShield AI - Evaluation Report v2.3.5")
+    print(f"  CallShield AI - Evaluation Report v2.4.0")
     print(f"  Testing {len(NORMAL_SCENARIOS)} normal + {len(SCAM_SCENARIOS)} scam scenarios")
     print(f"{'='*70}")
     print()
@@ -142,7 +142,7 @@ def evaluate_scenarios(verbose: bool = False) -> Dict:
 
     # Print report
     print(f"\n{'='*70}")
-    print(f"  EVALUATION RESULTS (v2.3.5)")
+    print(f"  EVALUATION RESULTS (v2.4.0)")
     print(f"{'='*70}")
     print(f"\n  Raw Detection (Risk Band >= Suspicious):")
     print(f"    Recall:              {recall:.1%} (Target: 85%+)")

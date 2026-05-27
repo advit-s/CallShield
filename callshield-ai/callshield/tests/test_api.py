@@ -111,7 +111,7 @@ def test_analyze_transcript_call_id_in_history():
         "user_id": "user-delete-test",
         "transcript": "Some test transcript."
     })
-    summary = client.get("/call-summary/test-store-001")
+    summary = client.get("/call-summary/test-store-001?user_id=user-delete-test")
     assert summary.status_code == 200
 
 
@@ -151,8 +151,9 @@ def test_analyze_audio_temp_cleanup():
     with patch("callshield.engine.asr.ASRTranscriber") as MockASR:
         # Simulate a failure
         MockASR.side_effect = RuntimeError("ASR failed")
+        wav_header = b"RIFF\x24\x00\x00\x00WAVEfmt "
         resp = client.post("/analyze-audio?call_id=test-audio-001&user_id=user-abc",
-                           files=[("audio", ("test.wav", b"\x00\x00\x00\x00", "audio/wav"))])
+                           files=[("audio", ("test.wav", wav_header, "audio/wav"))])
         # Should not crash; schema returns result even if ASR is placeholder
         assert resp.status_code in [200, 500]
 
@@ -222,7 +223,10 @@ def test_delete_call_summary(monkeypatch):
     })
 
     # Verify it exists
-    assert client.get("/call-summary/test-delete-001").status_code == 200
+    assert client.get(
+        "/call-summary/test-delete-001",
+        headers={"X-Admin-API-Key": "test-admin-secret"},
+    ).status_code == 200
 
     # Delete it
     resp = client.delete(

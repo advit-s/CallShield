@@ -13,6 +13,13 @@ try:
 except ImportError:
     pipeline = None
 
+try:
+    from transformers import AutoFeatureExtractor, AutoModelForSpeechSeq2Seq, AutoTokenizer
+except ImportError:
+    AutoFeatureExtractor = None
+    AutoModelForSpeechSeq2Seq = None
+    AutoTokenizer = None
+
 import os
 import warnings
 from typing import Optional, Union
@@ -120,6 +127,10 @@ class ASRTranscriber:
                 mode = "offline" if self.local_files_only else "online/cache"
                 print(f"Loaded Hugging Face ASR model ({mode}): {self.model_name}")
             except Exception as e:
+                if self._is_fast_tokenizer_parse_error(e):
+                    self.model = self._load_hf_pipeline_with_slow_tokenizer(device_id)
+                    if self.model is not None:
+                        return
                 warnings.warn(f"Could not load Hugging Face ASR model: {e}. Transcription will be limited.")
                 self.model = None
             return
@@ -134,6 +145,51 @@ class ASRTranscriber:
         except Exception as e:
             warnings.warn(f"Could not load Whisper: {e}. Transcription will be limited.")
             self.model = None
+
+    def _load_hf_pipeline_with_slow_tokenizer(self, device_id: int):
+        """Retry Whisper ASR with the Python tokenizer when tokenizer.json is incompatible."""
+        if (
+            AutoTokenizer is None
+            or AutoFeatureExtractor is None
+            or AutoModelForSpeechSeq2Seq is None
+        ):
+            return None
+        try:
+            pretrained_kwargs = {"local_files_only": True} if self.local_files_only else {}
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                use_fast=False,
+                **pretrained_kwargs,
+            )
+            feature_extractor = AutoFeatureExtractor.from_pretrained(
+                self.model_name,
+                **pretrained_kwargs,
+            )
+            model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                self.model_name,
+                **pretrained_kwargs,
+            )
+            loaded = pipeline(
+                "automatic-speech-recognition",
+                model=model,
+                tokenizer=tokenizer,
+                feature_extractor=feature_extractor,
+                device=device_id,
+            )
+            mode = "offline" if self.local_files_only else "online/cache"
+            print(f"Loaded Hugging Face ASR model with slow tokenizer ({mode}): {self.model_name}")
+            return loaded
+        except Exception as retry_error:
+            warnings.warn(
+                f"Could not load Hugging Face ASR model with slow tokenizer: {retry_error}. "
+                "Transcription will be limited."
+            )
+            return None
+
+    @staticmethod
+    def _is_fast_tokenizer_parse_error(error: Exception) -> bool:
+        message = str(error)
+        return "ModelWrapper" in message or "data did not match any variant" in message
 
     def transcribe(self, audio_path: Union[str, "torch.Tensor"], language: Optional[str] = None) -> dict:
         """Transcribe audio file or tensor. Returns dict with text, language, segments."""

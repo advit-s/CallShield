@@ -20,11 +20,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 def run_server():
     """Start the CallShield API server."""
     import os
+    import sys
     import socket
     import uvicorn
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
+    if "--port" in sys.argv:
+        try:
+            idx = sys.argv.index("--port")
+            port = int(sys.argv[idx + 1])
+        except (ValueError, IndexError):
+            print("Invalid or missing port argument for --port. Using default.")
+
     lan_urls = []
     try:
         hostname = socket.gethostname()
@@ -36,7 +44,9 @@ def run_server():
         lan_urls = []
 
     print(f"\n{'='*60}")
-    print(f"  CallShield AI v2.3.5 - Server")
+    from callshield.api.server import APP_VERSION
+
+    print(f"  CallShield AI v{APP_VERSION} - Server")
     print(f"  API: http://{host}:{port}")
     print(f"  Dashboard: http://{host}:{port}/demo")
     if lan_urls:
@@ -45,13 +55,21 @@ def run_server():
             print(f"    http://{ip}:{port}")
     print(f"{'='*60}\n")
 
-    uvicorn.run(
-        "callshield.api.server:app",
-        host=host,
-        port=port,
-        reload=os.getenv("CALLSHIELD_RELOAD", "false").lower() == "true",
-        log_level="info"
-    )
+    try:
+        uvicorn.run(
+            "callshield.api.server:app",
+            host=host,
+            port=port,
+            reload=os.getenv("CALLSHIELD_RELOAD", "false").lower() == "true",
+            log_level="info"
+        )
+    except OSError as exc:
+        if exc.errno == 10048 or "10048" in str(exc) or "in use" in str(exc).lower():
+            print(f"\n[ERROR] Port {port} is already in use!")
+            print("Please choose an alternative port using the --port flag or setting the PORT environment variable.")
+            print(f"Example: python main.py server --port 8010")
+            print(f"Or:      set PORT=8010 && python main.py server\n")
+        raise
 
 
 def run_demo():

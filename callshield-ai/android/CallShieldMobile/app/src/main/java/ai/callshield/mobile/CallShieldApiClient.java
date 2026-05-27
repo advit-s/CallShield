@@ -23,7 +23,9 @@ final class CallShieldApiClient {
 
     JSONObject analyzeAudio(String baseUrl, String callId, byte[] wavBytes) throws Exception {
         String encodedCallId = URLEncoder.encode(callId, "UTF-8");
-        URL url = new URL(cleanBase(baseUrl) + "/analyze-audio?call_id=" + encodedCallId);
+        URL url = new URL(cleanBase(baseUrl)
+                + "/analyze-audio?call_id=" + encodedCallId
+                + "&include_transcript=true");
         String boundary = "CallShieldBoundary" + System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();

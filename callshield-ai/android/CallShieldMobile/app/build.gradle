@@ -10,8 +10,8 @@ android {
         applicationId "ai.callshield.mobile"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "0.1"
+        versionCode 240
+        versionName "2.4.0-live-test"
     }
 
     compileOptions {

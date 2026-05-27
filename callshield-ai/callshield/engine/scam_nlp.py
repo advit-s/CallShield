@@ -1,4 +1,4 @@
-"""CallShield Scam Language Intelligence Engine (v2.3.5).
+"""CallShield Scam Language Intelligence Engine (v2.4.0).
 
 Product-grade scam detection with context-aware scoring.
 """
@@ -47,9 +47,14 @@ class ScamLanguageEngine:
         "family_emergency": {
             "en": ["i'?m in trouble", "emergency.*money", "accident", "hospital.*emergency",
                    "i'?m hurt", "i need urgent help", "main problem mein hoon", "accident hua hai",
-                   "friend is in trouble", "relative.*hospital"],
-            "hi": ["mujhe madad chahiye", "maine accident", "accident ho gaya", "hospital mein hoon"],
-            "hinglish": ["main problem mein hoon", "mujhe help chahiye", "accident hua", "hospital mein admit"],
+                   "friend is in trouble", "relative.*hospital", "your child is with us",
+                   "child.*with us", "we have your child", "kidnapped", "hostage",
+                   "your son is with us", "your daughter is with us"],
+            "hi": ["mujhe madad chahiye", "maine accident", "accident ho gaya", "hospital mein hoon",
+                   "बच्चा.*हमारे पास", "बेटा.*हमारे पास", "बेटी.*हमारे पास"],
+            "hinglish": ["main problem mein hoon", "mujhe help chahiye", "accident hua", "hospital mein admit",
+                         "bachcha.*hamare paas", "baccha.*hamare paas", "bacha.*hamare paas",
+                         "tumhara bachcha.*hamare paas", "beta.*hamare paas", "beti.*hamare paas"],
         },
         # 2. Bank/KYC fraud
         "bank_kyc_fraud": {
@@ -107,7 +112,8 @@ class ScamLanguageEngine:
         },
         # 7. UPI / payment request (urgent)
         "upi_payment_request": {
-            "en": ["send money", "transfer.*money", "upi id", "google pay", "phone pay", "paytm",
+            "en": ["send money", "send me money", "give me money",
+                   "money please", "pay me", "transfer.*money", "upi id", "google pay", "phone pay", "paytm",
                    "crypto", "bitcoin", "gift card", "payment link", "pay now", "deposit",
                    "processing fee", "clear the fine", "bhejo", "bhej do", "transfer kar", "upi karo",
                    "upi", "pay via upi", "transfer via upi", "phonepe"],
@@ -234,10 +240,11 @@ class ScamLanguageEngine:
                 import math
                 score = min(math.log(1 + match_count * 2) / math.log(5), 1.0)
                 scores[category] = score
-                for m in set([str(mm) for mm in matched_for_cat][:3]):
+                ordered_matches = list(dict.fromkeys(str(mm) for mm in matched_for_cat))
+                for m in ordered_matches[:3]:
                     if m not in matched_cues:
                         matched_cues.append(f"{category}: {m}")
-                matched_patterns[category] = list(set([str(mm) for mm in matched_for_cat]))[:5]
+                matched_patterns[category] = ordered_matches[:5]
 
         # Extract urgency
         urgency_score = scores.get("urgency", 0.0)
@@ -245,14 +252,14 @@ class ScamLanguageEngine:
         # --- Financial keyword detection ---
         financial_keywords = []
         financial_patterns = [
-            r"(₹|rs\.?|inr)\s?\d+|\d+\s?(rupees|rs|inr)",  # Amounts
+            r"(?:₹|rs\.?|inr)\s?\d+|\d+\s?(?:rupees|rs|inr)",  # Amounts
             r"\bupi\b|google pay|phonepe|paytm",  # UPI/GPay
             r"\botp\b|\bpin\b|\bcvv\b|password|verification code", # Credentials
         ]
         for p in financial_patterns:
-            matches = re.findall(p, text_lower, re.IGNORECASE)
-            if matches:
-                financial_keywords.extend([m[0] if isinstance(m, tuple) else m for m in matches])
+            financial_keywords.extend(
+                match.group(0) for match in re.finditer(p, text_lower, re.IGNORECASE)
+            )
 
         # --- Compute scam score with combination logic ---
         # Distinguish between strong and weak categories
@@ -323,6 +330,12 @@ class ScamLanguageEngine:
             if "keep this very quiet" in text_lower and "do not mention" in text_lower:
                 scam_score = max(scam_score, 0.65)
 
+            if self._has_kidnapping_extortion_context(text_lower):
+                scam_score = max(scam_score, 0.90)
+
+            if self._has_direct_payment_pressure(text_lower):
+                scam_score = max(scam_score, 0.70)
+
         # Apply benign context penalty
         benign_penalty = self._has_benign_context(text_lower)
         scam_score = max(0.0, scam_score - benign_penalty)
@@ -342,9 +355,9 @@ class ScamLanguageEngine:
             scam_type=scam_type,
             scam_type_confidence=round(scam_confidence, 3),
             urgency_score=round(urgency_score, 3),
-            detected_cues=list(set(matched_cues))[:8],
+            detected_cues=list(dict.fromkeys(matched_cues))[:8],
             category_scores={k: round(v, 3) for k, v in scores.items()},
-            financial_keywords=list(set(financial_keywords)),
+            financial_keywords=list(dict.fromkeys(financial_keywords)),
             matched_patterns=matched_patterns
         )
 
@@ -370,6 +383,9 @@ class ScamLanguageEngine:
         if not type_scores:
             return ScamType.UNKNOWN, 0.0
 
+        if self._has_kidnapping_extortion_context(text_lower):
+            return ScamType.FAMILY_EMERGENCY, max(type_scores.get("family_emergency", 0.0), 0.9)
+
         if type_scores.get("remote_access_request", 0.0) >= type_scores.get("tech_support_scam", 0.0) and \
            type_scores.get("remote_access_request", 0.0) > 0:
             return ScamType.REMOTE_ACCESS_REQUEST, type_scores["remote_access_request"]
@@ -391,3 +407,54 @@ class ScamLanguageEngine:
         }
 
         return type_map.get(best_type, ScamType.UNKNOWN), best_score
+
+    @staticmethod
+    def _has_direct_payment_pressure(text_lower: str) -> bool:
+        """Detect direct, context-free payment pressure heard by ASR."""
+        patterns = [
+            r"\bplease\s+send\s+money\b",
+            r"\bsend\s+money\s+(?:now|please|immediately|urgently)\b",
+            r"\bsend\s+me\s+money\b",
+            r"\bgive\s+me\s+money\b",
+            r"\bpay\s+me\b",
+            r"\bmoney\s+please\b",
+            r"\bpaise\s+bhejo\b",
+            r"\bpaisa\s+bhejo\b",
+        ]
+        return any(re.search(pattern, text_lower, re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _has_kidnapping_extortion_context(text_lower: str) -> bool:
+        child_or_hostage = any(
+            phrase in text_lower
+            for phrase in [
+                "child is with us",
+                "we have your child",
+                "your son is with us",
+                "your daughter is with us",
+                "kidnapped",
+                "hostage",
+                "bachcha hamare paas",
+                "baccha hamare paas",
+                "bacha hamare paas",
+                "tumhara bachcha",
+                "बच्चा",
+                "बेटा",
+                "बेटी",
+            ]
+        )
+        extortion = any(
+            phrase in text_lower
+            for phrase in [
+                "send money",
+                "transfer",
+                "pay",
+                "money",
+                "paise",
+                "paisa",
+                "bhejo",
+                "भेजो",
+                "पैसे",
+            ]
+        )
+        return child_or_hostage and extortion

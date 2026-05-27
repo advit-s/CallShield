@@ -1,4 +1,4 @@
-"""CallShield Python SDK v2.3.5 (Deepfake Evaluation Hardening).
+"""CallShield Python SDK v2.4.0 (Mobile ASR and Scam NLP Hardening).
 
 B2B-ready SDK with confidence levels, two-tier warnings,
 and challenge-response verification.
@@ -42,7 +42,7 @@ class CallShieldResult:
 
 
 class CallShieldSDK:
-    """v2.3.5 SDK - Deepfake Evaluation Hardening."""
+    """v2.4.0 SDK - Mobile ASR and Scam NLP Hardening."""
 
     def __init__(self, 
                  custom_weights: Optional[Dict[str, float]] = None,
@@ -56,12 +56,12 @@ class CallShieldSDK:
         self.asr_available = self._is_asr_available()
 
     def _is_asr_available(self) -> bool:
-        """Return whether the optional Whisper ASR dependency is importable."""
+        """Return whether at least one optional ASR backend is importable."""
         try:
-            from callshield.engine.asr import whisper
+            from callshield.engine.asr import pipeline, whisper
         except Exception:
             return False
-        return whisper is not None
+        return whisper is not None or pipeline is not None
 
     def get_model_status(self) -> Dict[str, str]:
         """Return live module status without overstating untrained models."""
@@ -120,7 +120,11 @@ class CallShieldSDK:
         
         # 3. Inject audio analysis details
         result.audio_analysis = audio_result
-        if audio_result.get("audio_signal_strength") == "strong" and result.risk_band != "safe":
+        if (
+            audio_result.get("used_in_fusion")
+            and audio_result.get("audio_signal_strength") == "strong"
+            and result.risk_band != "safe"
+        ):
             result.why_flagged += " Possible synthetic or cloned voice detected."
             
         return result

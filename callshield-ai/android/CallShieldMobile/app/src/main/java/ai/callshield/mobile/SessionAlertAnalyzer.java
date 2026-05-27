@@ -61,6 +61,7 @@ public final class SessionAlertAnalyzer {
         int softWarnings = 0;
         int hardWarnings = 0;
         int suspiciousOrWorse = 0;
+        int transcriptChunks = 0;
         Map<String, Integer> scamTypeCounts = new HashMap<>();
         StringBuilder evidence = new StringBuilder();
         StringBuilder savedScores = new StringBuilder();
@@ -69,7 +70,9 @@ public final class SessionAlertAnalyzer {
             ChunkScore chunk = chunks.get(i);
             totalRisk += chunk.riskScore;
             maxRisk = Math.max(maxRisk, chunk.riskScore);
-            maxDeepfakeScore = Math.max(maxDeepfakeScore, chunk.deepfakeScore);
+            if (chunk.deepfakeUsedInFusion || !chunk.transcript.isEmpty()) {
+                maxDeepfakeScore = Math.max(maxDeepfakeScore, chunk.deepfakeScore);
+            }
 
             if ("soft".equalsIgnoreCase(chunk.warningLevel)) {
                 softWarnings += 1;
@@ -84,6 +87,7 @@ public final class SessionAlertAnalyzer {
                 scamTypeCounts.put(chunk.scamType, scamTypeCounts.getOrDefault(chunk.scamType, 0) + 1);
             }
             if (!chunk.transcript.isEmpty() && evidence.length() < 260) {
+                transcriptChunks += 1;
                 if (evidence.length() > 0) {
                     evidence.append("\n");
                 }
@@ -104,7 +108,7 @@ public final class SessionAlertAnalyzer {
 
         double averageRisk = totalRisk / chunks.size();
         String topScamType = topScamType(scamTypeCounts);
-        String alertTitle = chooseAlertTitle(maxRisk, averageRisk, hardWarnings, softWarnings, suspiciousOrWorse, maxDeepfakeScore);
+        String alertTitle = chooseAlertTitle(maxRisk, averageRisk, hardWarnings, softWarnings, suspiciousOrWorse, maxDeepfakeScore, transcriptChunks);
         String action = chooseAction(alertTitle, topScamType, maxDeepfakeScore, suspiciousOrWorse);
 
         return new SessionSummary(
@@ -129,13 +133,17 @@ public final class SessionAlertAnalyzer {
             int hardWarnings,
             int softWarnings,
             int suspiciousOrWorse,
-            double maxDeepfakeScore
+            double maxDeepfakeScore,
+            int transcriptChunks
     ) {
         if (maxRisk >= 65.0 || hardWarnings > 0) {
             return "HIGH RISK";
         }
         if (maxRisk >= 35.0 || averageRisk >= 25.0 || softWarnings > 0 || suspiciousOrWorse > 0) {
             return "REVIEW CALL";
+        }
+        if (transcriptChunks == 0 && maxRisk < 1.0 && softWarnings == 0 && hardWarnings == 0) {
+            return "NO CALL AUDIO";
         }
         if (maxDeepfakeScore >= 0.5) {
             return "AUDIO REVIEW";
@@ -159,6 +167,9 @@ public final class SessionAlertAnalyzer {
         }
         if ("AUDIO REVIEW".equals(alertTitle)) {
             return "Audio looked synthetic, but scam-language evidence was weak. Treat as a soft signal and verify before trusting the caller.";
+        }
+        if ("NO CALL AUDIO".equals(alertTitle)) {
+            return "CallShield did not hear usable speech. Turn on Speaker, raise call volume, keep the phone near the speaker, and confirm the backend ASR model is loaded.";
         }
         if (suspiciousOrWorse > 0 || maxDeepfakeScore >= 0.5) {
             return "Low overall risk, but review the saved session details if something felt unusual.";
