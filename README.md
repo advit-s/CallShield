@@ -54,4 +54,14 @@ https://YOUR-TUNNEL.trycloudflare.com
 
 ## Honest Status
 
-CallShield is ready for controlled demos, technical walkthroughs, and portfolio review. It is not yet production-validated on real phone-call audio, noisy WhatsApp/VoIP calls, or in-the-wild scam calls.
+CallShield is ready for controlled demos and technical walkthroughs. It is not yet production-validated on real phone-call audio, noisy WhatsApp/VoIP calls, or in-the-wild scam calls.
+
+## Mobile Demo Screenshots
+
+Screenshots from the Android test app connected to the local CallShield backend.
+
+<p>
+  <img src="docs/assets/mobile-demo/callshield-mobile-final-risk.jpg" width="260" alt="CallShield mobile final risk summary screen">
+  <img src="docs/assets/mobile-demo/callshield-mobile-latest-result.jpg" width="260" alt="CallShield mobile latest technical result screen">
+  <img src="docs/assets/mobile-demo/callshield-mobile-logmel.jpg" width="260" alt="CallShield mobile log-mel spectrogram screen">
+</p>
