@@ -61,7 +61,7 @@ CallShield is ready for controlled demos and technical walkthroughs. It is not y
 Screenshots from the Android test app connected to the local CallShield backend.
 
 <p>
-  <img src="C:\Users\advit\OneDrive\Desktop\CallShield\docs\assets\mobile-demo\7bd13d83-a8fd-4242-9d7a-a030dafa35ad.jpg" width="260" alt="CallShield mobile final risk summary screen">
+  <img src="docs\assets\mobile-demo\7bd13d83-a8fd-4242-9d7a-a030dafa35ad.jpg" width="260" alt="CallShield mobile final risk summary screen">
   <img src="docs/assets/mobile-demo/callshield-mobile-latest-result.jpg" width="260" alt="CallShield mobile latest technical result screen">
   <img src="docs/assets/mobile-demo/callshield-mobile-logmel.jpg" width="260" alt="CallShield mobile log-mel spectrogram screen">
 </p>
