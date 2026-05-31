@@ -24,11 +24,20 @@ final class CallShieldApiClient {
     }
 
     JSONObject analyzeAudio(String baseUrl, String callId, byte[] wavBytes) throws Exception {
+        return analyzeAudio(baseUrl, callId, wavBytes, "chunk.wav", "audio/wav");
+    }
+
+    JSONObject analyzeAudio(String baseUrl, String callId, byte[] audioBytes,
+                            String filename, String contentType) throws Exception {
         String encodedCallId = URLEncoder.encode(callId, "UTF-8");
         URL url = new URL(cleanBase(baseUrl)
                 + "/analyze-audio?call_id=" + encodedCallId
                 + "&include_transcript=true");
         String boundary = "CallShieldBoundary" + System.currentTimeMillis();
+        String safeFilename = safeMultipartToken(filename == null ? "recording.wav" : filename);
+        String safeContentType = contentType == null || contentType.trim().isEmpty()
+                ? "audio/wav"
+                : contentType.trim();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(10000);
@@ -39,16 +48,20 @@ final class CallShieldApiClient {
 
         try (DataOutputStream out = new DataOutputStream(connection.getOutputStream())) {
             writeLine(out, "--" + boundary);
-            writeLine(out, "Content-Disposition: form-data; name=\"audio\"; filename=\"chunk.wav\"");
-            writeLine(out, "Content-Type: audio/wav");
+            writeLine(out, "Content-Disposition: form-data; name=\"audio\"; filename=\"" + safeFilename + "\"");
+            writeLine(out, "Content-Type: " + safeContentType);
             writeLine(out, "");
-            out.write(wavBytes);
+            out.write(audioBytes);
             writeLine(out, "");
             writeLine(out, "--" + boundary + "--");
         }
 
         lastResponse = readJsonResponse(connection);
  return lastResponse;
+    }
+
+    private static String safeMultipartToken(String value) {
+        return value.replace("\\", "_").replace("\"", "_").replace("\r", "_").replace("\n", "_");
     }
 
     private static String cleanBase(String baseUrl) {

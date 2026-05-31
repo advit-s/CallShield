@@ -31,12 +31,28 @@ public final class PhoneStateReceiver extends BroadcastReceiver {
             return;
         }
 
+        if (TelephonyManager.EXTRA_STATE_OFFHOOK.equals(state)) {
+            startMonitoringFromIncomingCall(context);
+            return;
+        }
+
         if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) {
             MainActivity activity = CallShieldRuntime.currentActivity();
-            if (CallShieldRuntime.isActivityVisible() && activity != null) {
+            if (activity != null) {
                 activity.runOnUiThread(activity::handlePhoneCallEndedFromReceiver);
+            } else {
+                showIncomingCallNotification(context);
             }
         }
+    }
+
+    private static void startMonitoringFromIncomingCall(Context context) {
+        MainActivity activity = CallShieldRuntime.currentActivity();
+        if (activity != null) {
+            activity.runOnUiThread(activity::handlePhoneCallStartedFromReceiver);
+            return;
+        }
+        showIncomingCallNotification(context);
     }
 
     private static void showIncomingCallNotification(Context context) {
@@ -55,7 +71,7 @@ public final class PhoneStateReceiver extends BroadcastReceiver {
                     "Incoming call monitoring",
                     NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Prompts you to start CallShield when a phone call arrives.");
+            channel.setDescription("Starts CallShield monitoring when Android allows it.");
             manager.createNotificationChannel(channel);
         }
 
@@ -75,7 +91,7 @@ public final class PhoneStateReceiver extends BroadcastReceiver {
                 : new Notification.Builder(context);
         builder.setSmallIcon(android.R.drawable.stat_sys_warning)
                 .setContentTitle("Incoming call detected")
-                .setContentText("Tap to start CallShield monitoring.")
+                .setContentText("CallShield will auto-monitor when possible. Tap to open.")
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
                 .setPriority(Notification.PRIORITY_HIGH)

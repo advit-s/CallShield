@@ -3,17 +3,25 @@ package ai.callshield.mobile;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.VectorDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Base64;
@@ -35,6 +43,8 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -49,6 +59,8 @@ public final class MainActivity extends Activity {
     // ── permissions & prefs ──────────────────────────────────────────
     private static final int REQ_AUDIO = 1001;
     private static final int REQ_CALL = 1002;
+    private static final int REQ_PICK_RECORDING = 1003;
+    private static final int MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     private static final String PREFS = "callshield_mobile";
     private static final String K_URL = "server_url";
     private static final String K_SAVE = "last_session_summary";
@@ -57,6 +69,8 @@ public final class MainActivity extends Activity {
 
     public static final String ACTION_OPEN_FROM_CALL_NOTIFICATION =
             "ai.callshield.mobile.action.OPEN_FROM_CALL_NOTIFICATION";
+    public static final String ACTION_OPEN_LAST_REPORT =
+            "ai.callshield.mobile.action.OPEN_LAST_REPORT";
 
     private static final int TAB_SCAN = 0, TAB_HIST = 1, TAB_SET = 2;
 
@@ -132,6 +146,16 @@ public final class MainActivity extends Activity {
         handleNotif(i);
     }
 
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_PICK_RECORDING
+                && resultCode == RESULT_OK
+                && data != null
+                && data.getData() != null) {
+            analyzeRecordingUri(data.getData());
+        }
+    }
+
     @Override protected void onResume() {
         super.onResume();
         CallShieldRuntime.markActivityVisible(this);
@@ -144,6 +168,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (streamer != null) streamer.stop();
+        CallShieldRuntime.clearActivity(this);
         net.shutdownNow();
         super.onDestroy();
     }
@@ -155,6 +180,10 @@ public final class MainActivity extends Activity {
             return;
         }
         if (!scanning && topStatus != null) topStatus.setText("Call ended");
+    }
+
+    public void handlePhoneCallStartedFromReceiver() {
+        startMonitoringFromIncomingCall();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -338,27 +367,36 @@ public final class MainActivity extends Activity {
         r.setPadding(pad, dp(12), pad, dp(20));
 
         // ── section: detection status ──────────────────────────────
-        r.addView(heading("Detection status"));
-        topStatus = tv(scanning ? "Listening…" : "Ready");
+        r.addView(heading("CallShield AI"));
+        topStatus = tv(scanning ? "Monitoring audio..." : "Session analyzed");
         topStatus.setBackground(roundBg(C_SURF_ALT, C_BORDER, 1, 12));
         topStatus.setPadding(dp(14), dp(14), dp(14), dp(14));
         topStatus.setTextSize(14);
         r.addView(topStatus, mg(10));
 
         // ── section: three-signal analysis ─────────────────────────
-        r.addView(heading("Three-signal analysis"));
+        r.addView(heading("Three Signal Risk Analysis"));
         SigBag sig = new SigBag();
-        r.addView(sigCard("Fragment Audio", "ic_mic", "IDLE", C_MUTED, "Deepfake + replay detection", sig));
-        r.addView(sigCard("Scam Language", "ic_language", "IDLE", C_MUTED, "Urgency / pressure phrases", sig));
-        r.addView(sigCard("Caller Identity", "ic_person", "LOW", C_GREEN, "Callback + safe-phrase check", sig));
+        r.addView(sigCard("Audio Deepfake & Replay", "ic_mic", "OFF", C_MUTED, "Audio ignored by fusion gate", sig));
+        r.addView(sigCard("Scam Language Detection", "ic_language", "IDLE", C_MUTED, "Urgency / pressure phrases", sig));
+        r.addView(sigCard("Identity Verification", "ic_person", "LOW", C_GREEN, "Callback + safe-phrase check", sig));
         aTtl = sig.t1; aSub = sig.s1;
         lTtl = sig.t2; lSub = sig.s2;
         iTtl = sig.t3; iSub = sig.s3;
 
         // ── section: overall risk ──────────────────────────────────
-        r.addView(heading("Current risk"));
+        r.addView(heading("Final risk level"));
         LinearLayout rc = riskCard();
         r.addView(rc, mg(10));
+
+        LinearLayout live = dashboardCard("Live analysis");
+        live.addView(infoPanel("Connection",
+                loadUrl().isEmpty() ? "Backend URL missing" : "Backend URL set"), mg(6));
+        live.addView(infoPanel("Microphone",
+                scanning ? "Mic level active" : "Mic: waiting"), mg(6));
+        live.addView(infoPanel("Latest result",
+                "Risk: waiting\nWarning: none\nScam type: unknown\nASR: waiting"), mg(6));
+        r.addView(live, mg(10));
 
         // ── backend setup helper card ──────────────────────────────
         if (loadUrl().isEmpty()) {
@@ -406,6 +444,11 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Routes call audio to speaker when Android allows it.", Toast.LENGTH_LONG).show();
         });
         r.addView(spkBtn, mg(10));
+
+        Button importBtn = makeBtn("Analyze Recording File", C_NAV);
+        importBtn.setTextColor(parse(C_CYAN));
+        importBtn.setOnClickListener(v -> pickRecordingFile());
+        r.addView(importBtn, mg(10));
 
         // ── Last Scan Session Card ─────────────────────────────────
         String savedTxt = getSharedPreferences(PREFS, MODE_PRIVATE).getString(K_SAVE, "");
@@ -457,14 +500,16 @@ public final class MainActivity extends Activity {
         }
 
         // ── section: call evidence ────────────────────────────────
-        r.addView(heading("Call evidence"));
+        r.addView(heading("Call Evidence"));
 
+        r.addView(heading("Heard by CallShield"));
         heardTxt = tv("Transcript: waiting for speech…");
         heardTxt.setBackground(roundBg(C_SURF_ALT, C_BORDER, 1, 12));
         heardTxt.setPadding(dp(14), dp(14), dp(14), dp(14));
         heardTxt.setTextSize(13);
         r.addView(heardTxt, mg(6));
 
+        r.addView(heading("Audio fingerprint"));
         specTxt = tv("Spectrogram: waiting");
         specTxt.setBackground(roundBg(C_SURF_ALT, C_BORDER, 1, 12));
         specTxt.setPadding(dp(14), dp(10), dp(14), dp(10));
@@ -484,6 +529,7 @@ public final class MainActivity extends Activity {
         micLvl.setTextColor(parse(C_MUTED));
         r.addView(micLvl, mg(10));
 
+        r.addView(heading("Advanced / debug"));
         // Save Last Chunk Button
         saveChunkBtn = makeBtn("Save Last Chunk", C_SURFACE);
         saveChunkBtn.setEnabled(lastWav != null);
@@ -533,7 +579,7 @@ public final class MainActivity extends Activity {
         rc.setPadding(dp(16), dp(16), dp(16), dp(14));
         rc.setBackground(roundBg(C_SURFACE, C_BORDER, 1, 12));
 
-        riskKicker = tv("RISK SCORE");
+        riskKicker = tv("Final risk level");
         riskKicker.setTextSize(10);
         riskKicker.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         riskKicker.setTextColor(parse(C_TEAL));
@@ -644,9 +690,9 @@ public final class MainActivity extends Activity {
         badge.setPadding(dp(10), dp(4), dp(10), dp(4));
         c.addView(badge);
 
-        if (bag.t1 == null) { bag.t1 = tt; bag.s1 = st; }
-        else if (bag.t2 == null) { bag.t2 = tt; bag.s2 = st; }
-        else { bag.t3 = tt; bag.s3 = st; }
+        if (bag.t1 == null) { bag.t1 = badge; bag.s1 = st; }
+        else if (bag.t2 == null) { bag.t2 = badge; bag.s2 = st; }
+        else { bag.t3 = badge; bag.s3 = st; }
         return c;
     }
 
@@ -895,7 +941,7 @@ public final class MainActivity extends Activity {
         urlLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         urlCol.addView(urlLabel);
         urlIn = urlEdit();
-        urlIn.setHint(isEmulator() ? EMU_URL : "http://192.168.1.x:8010");
+        urlIn.setHint(isEmulator() ? EMU_URL : "http://192.168.1.x:8000");
         urlCol.addView(urlIn);
         urlRow.addView(urlCol, weightLp());
 
@@ -913,7 +959,7 @@ public final class MainActivity extends Activity {
         // Connection hint
         connTxt = tv(isEmulator()
                 ? "Emulator: " + EMU_URL
-                : "Use your laptop's Wi-Fi IPv4, e.g. http://192.168.1.7:8010",
+                : "Use your laptop's Wi-Fi IPv4 and the port shown by the backend, e.g. http://192.168.1.7:8000",
                 C_MUTED, 12);
         connTxt.setPadding(0, dp(6), 0, 0);
         sc.addView(connTxt);
@@ -1076,6 +1122,32 @@ public final class MainActivity extends Activity {
         return c;
     }
 
+    private LinearLayout dashboardCard(String title) {
+        LinearLayout c = col();
+        c.setPadding(dp(16), dp(12), dp(16), dp(12));
+        c.setBackground(roundBg(C_SURFACE, C_BORDER, 1, 12));
+        if (title != null && !title.isEmpty()) {
+            c.addView(heading(title));
+        }
+        return c;
+    }
+
+    private LinearLayout infoPanel(String title, String body) {
+        return infoPanel(title, tv(body, "#D1D5DB", 12));
+    }
+
+    private LinearLayout infoPanel(String title, TextView body) {
+        LinearLayout panel = col();
+        panel.setPadding(dp(12), dp(10), dp(12), dp(10));
+        panel.setBackground(roundBg(C_SURF_ALT, C_BORDER, 1, 10));
+        TextView label = tv(title, C_LABEL, 11);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        panel.addView(label);
+        body.setPadding(0, dp(5), 0, 0);
+        panel.addView(body);
+        return panel;
+    }
+
     private EditText urlEdit() {
         EditText e = new EditText(this);
         e.setSingleLine(true);
@@ -1099,6 +1171,14 @@ public final class MainActivity extends Activity {
     // ═══════════════════════════════════════════════════════════════════
     // scan flow — logic preserved, UI calls updated
     // ═══════════════════════════════════════════════════════════════════
+    private void startMonitoringFromIncomingCall() {
+        if (scanning) return;
+        tab = TAB_SCAN;
+        if (contentHolder != null) swap();
+        setStatus("Call active. Auto monitoring.");
+        startScan(true);
+    }
+
     private void startScan(boolean inc) {
         if (scanning) return;
         persist();
@@ -1128,9 +1208,12 @@ public final class MainActivity extends Activity {
 
         clearScanUi();
         log("Session " + sid);
+        if (inc) {
+            enableSpeakerphoneAssist(true);
+        }
         streamer.start();
         flipBtns(true);
-        setStatus("Recording. Keep speaker on.");
+        setStatus(inc ? "Auto monitoring call. Keep speaker on." : "Recording. Keep speaker on.");
     }
 
     private void endScan() {
@@ -1148,6 +1231,113 @@ public final class MainActivity extends Activity {
         stopP.set(true);
         if (fly.get()) setStatus("Waiting for final…");
         else finalSum();
+    }
+
+    private void pickRecordingFile() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        pick.setType("audio/*");
+        pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(pick, REQ_PICK_RECORDING);
+    }
+
+    private void analyzeRecordingUri(Uri uri) {
+        persist();
+        url = normUrl();
+        if (!okUrl(url)) return;
+
+        analy.reset();
+        sid = "recording-" + System.currentTimeMillis();
+        t0 = System.currentTimeMillis();
+        setStatus("Analyzing saved recording...");
+        if (topStatus != null) topStatus.setText("Saved recording selected");
+        if (riskLabel != null) {
+            riskLabel.setText("ANALYZING");
+            riskLabel.setTextColor(parse(C_TEAL));
+        }
+        if (riskScore != null) riskScore.setText("File upload");
+        if (riskSum != null) riskSum.setText("Reading selected call recording file.");
+        log("recording import queued");
+
+        net.submit(() -> {
+            try {
+                String name = recordingDisplayName(uri);
+                String mime = recordingMimeType(uri);
+                byte[] bytes = readRecordingBytes(uri);
+                api.analyzeAudio(url, sid, bytes, name, mime);
+                runOnUiThread(() -> {
+                    showResp();
+                    stopP.set(true);
+                    finalSum();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    setStatus("Recording analysis failed");
+                    connErr(e, url);
+                    Toast.makeText(this, "Recording analysis failed: " + shortErr(e), Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private String recordingMimeType(Uri uri) {
+        String mime = getContentResolver().getType(uri);
+        return mime == null || mime.trim().isEmpty() ? "audio/wav" : mime;
+    }
+
+    private String recordingDisplayName(Uri uri) {
+        String name = null;
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) name = cursor.getString(idx);
+            }
+        } catch (Exception ignored) {
+            // Fall back to a safe name below.
+        }
+        if (name == null || name.trim().isEmpty()) {
+            name = "call_recording" + extensionForMime(recordingMimeType(uri));
+        }
+        if (!name.contains(".")) {
+            name = name + extensionForMime(recordingMimeType(uri));
+        }
+        return name;
+    }
+
+    private String extensionForMime(String mime) {
+        if (mime == null) return ".wav";
+        String m = mime.toLowerCase(Locale.US);
+        if (m.contains("mpeg") || m.contains("mp3")) return ".mp3";
+        if (m.contains("mp4") || m.contains("m4a")) return ".m4a";
+        if (m.contains("ogg")) return ".ogg";
+        if (m.contains("flac")) return ".flac";
+        if (m.contains("webm")) return ".webm";
+        if (m.contains("aac")) return ".aac";
+        return ".wav";
+    }
+
+    private byte[] readRecordingBytes(Uri uri) throws Exception {
+        ContentResolver resolver = getContentResolver();
+        try (InputStream in = resolver.openInputStream(uri);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (in == null) {
+                throw new IllegalStateException("Could not open selected recording");
+            }
+            byte[] buf = new byte[8192];
+            int read;
+            int total = 0;
+            while ((read = in.read(buf)) != -1) {
+                total += read;
+                if (total > MAX_IMPORT_BYTES) {
+                    throw new IllegalStateException("Recording is larger than 10 MB");
+                }
+                out.write(buf, 0, read);
+            }
+            if (total == 0) {
+                throw new IllegalStateException("Recording file is empty");
+            }
+            return out.toByteArray();
+        }
     }
 
     private void clearScanUi() {
@@ -1239,20 +1429,19 @@ public final class MainActivity extends Activity {
 
         double sc = r.optDouble("risk_score", 0);
         String band = r.optString("risk_band", "?");
-        String holdFlag = raw != null && raw.optJSONObject("audio") != null
-                ? raw.optJSONObject("audio").optString("fusion_gate", "") : "";
-        boolean hold = "held_for_text_corroboration"
-                .equalsIgnoreCase(holdFlag) && deepfakeScore(raw) >= 0.5;
-        String disp = hold ? "REVIEW" : riskBand(sc, band);
-        int col = hold ? parse(C_ORANGE) : riskColor(sc, band);
+        boolean audioReview = deepfakeScore(raw) >= 0.5 && sc < 40;
+        String disp = audioReview ? "AUDIO REVIEW" : riskBand(sc, band);
+        int col = audioReview ? parse(C_AMBER) : riskColor(sc, band);
 
         riskLabel.setText(disp);
         riskLabel.setTextColor(col);
         riskScore.setText(String.format(Locale.US, "%.1f/100 risk", sc));
-        riskSum.setText(r.optString("why_flagged",
-                "Analyzing voice, language and identity."));
+        riskSum.setText(audioReview
+                ? "Audio looked synthetic. Scam language was not required for this warning."
+                : r.optString("why_flagged", "Analyzing voice, language and identity."));
+        rememberAnalysisChunk(r, raw, heard);
 
-        if (aTtl != null) aTtl.setText(riskBand(sc, band));
+        if (aTtl != null) aTtl.setText(audioReview ? "REVIEW" : riskBand(sc, band));
         if (aSub != null) {
             aSub.setText("Synthetic " + deepfakeScoreStr(raw));
             aSub.setTextColor(col);
@@ -1263,6 +1452,19 @@ public final class MainActivity extends Activity {
             iSub.setText(susp ? "Suspicious pattern" : "No urgency");
             iSub.setTextColor(susp ? parse(C_ORANGE) : parse(C_CYAN));
         }
+    }
+
+    private void rememberAnalysisChunk(JSONObject r, JSONObject raw, String heard) {
+        JSONObject audio = raw == null ? null : raw.optJSONObject("audio");
+        analy.addChunk(
+                r.optDouble("risk_score", 0),
+                r.optString("risk_band", "unknown"),
+                r.optString("warning_level", "none"),
+                r.optString("scam_type", "unknown"),
+                heard,
+                deepfakeScore(raw),
+                audio != null && audio.optBoolean("used_in_fusion", false)
+        );
     }
 
     private void finalSum() {
@@ -1283,17 +1485,64 @@ public final class MainActivity extends Activity {
             riskSum.setText("Analyzed " + s.chunkCount + " chunks, "
                     + s.suspiciousChunks + " suspicious.");
 
-        // Re-render scan page to display/refresh the "Last Scan Session" card if we are on the scan screen
-        if (tab == TAB_SCAN) {
+        // Re-render scan page to display/refresh the "Last Scan Session" card when visible.
+        if (tab == TAB_SCAN && CallShieldRuntime.isActivityVisible()) {
             setContentView(root());
         }
 
+        showFinalReport(s);
+    }
+
+    private void showFinalReport(SessionAlertAnalyzer.SessionSummary s) {
+        if (!CallShieldRuntime.isActivityVisible()) {
+            showReportNotification(s);
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("CallShield: " + s.alertTitle)
                 .setMessage(s.toDialogMessage())
                 .setNeutralButton("View Saved", (d, w) -> showSaved())
                 .setPositiveButton("OK", null)
                 .show();
+    }
+
+    private void showReportNotification(SessionAlertAnalyzer.SessionSummary s) {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        String channelId = "callshield_reports";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    channelId,
+                    "CallShield reports",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("Final CallShield call reports after monitored calls end.");
+            manager.createNotificationChannel(channel);
+        }
+
+        Intent open = new Intent(this, MainActivity.class);
+        open.setAction(ACTION_OPEN_LAST_REPORT);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pending = PendingIntent.getActivity(
+                this,
+                42,
+                open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, channelId)
+                : new Notification.Builder(this);
+        builder.setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentTitle("CallShield report: " + s.alertTitle)
+                .setContentText("Max risk " + (int) s.maxRisk + "/100. Tap to view the full report.")
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .setPriority(Notification.PRIORITY_HIGH);
+        manager.notify(9042, builder.build());
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1338,13 +1587,20 @@ public final class MainActivity extends Activity {
         String u = normUrl();
         if (!okUrl(u)) return;
         persist();
-        connTxt.setText("Testing " + u + "…");
+        String endpoint = cleanUrlBase(u) + "/health";
+        long started = System.nanoTime();
+        if (statTxt != null) {
+            statTxt.setText("Testing...");
+            statTxt.setTextColor(parse(C_CYAN));
+        }
+        connTxt.setText("Testing " + endpoint + "...");
         srvBtn.setEnabled(false);
         net.submit(() -> {
             try {
                 JSONObject h = api.healthCheck(u);
+                long ms = (System.nanoTime() - started) / 1_000_000L;
                 runOnUiThread(() -> {
-                    connTxt.setText("v"
+                    connTxt.setText("Connected. Last response in " + ms + " ms. v"
                             + h.optString("version", "?")
                             + " (" + h.optString("status", "ok") + ")");
                     log("server OK");
@@ -1360,14 +1616,20 @@ public final class MainActivity extends Activity {
     }
 
     private void handleNotif(Intent i) {
-        if (i == null
-                || !ACTION_OPEN_FROM_CALL_NOTIFICATION.equals(i.getAction())) return;
+        if (i == null) return;
+        if (ACTION_OPEN_LAST_REPORT.equals(i.getAction())) {
+            tab = TAB_HIST;
+            if (contentHolder != null) swap();
+            showSaved();
+            return;
+        }
+        if (!ACTION_OPEN_FROM_CALL_NOTIFICATION.equals(i.getAction())) return;
         log("notif opened");
         if (!CallShieldSettings.isRealCallModeEnabled(this)) {
             setStatus("Real call mode off — use Scan.");
             return;
         }
-        setStatus("Incoming call. Tap Scan to monitor.");
+        startMonitoringFromIncomingCall();
     }
 
     private void enableSpeakerphoneAssist(boolean start) {
@@ -1399,6 +1661,14 @@ public final class MainActivity extends Activity {
         return urlIn != null ? urlIn.getText().toString().trim() : loadUrl();
     }
 
+    private String cleanUrlBase(String raw) {
+        String clean = raw == null ? "" : raw.trim();
+        while (clean.endsWith("/")) {
+            clean = clean.substring(0, clean.length() - 1);
+        }
+        return clean;
+    }
+
     private String loadUrl() {
         return getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getString(K_URL, "");
@@ -1420,7 +1690,7 @@ public final class MainActivity extends Activity {
 
     private void emuWarn() {
         if (urlIn != null)
-            urlIn.setHint("Use laptop Wi-Fi on physical device");
+            urlIn.setHint("Use laptop Wi-Fi IPv4 on physical device");
     }
 
     private boolean okUrl(String u) {
@@ -1428,27 +1698,31 @@ public final class MainActivity extends Activity {
             if (topStatus != null) topStatus.setTextColor(parse(C_AMBER));
             if (connTxt != null) connTxt.setText("Enter a backend address to start scanning.");
             if (urlIn != null) urlIn.requestFocus();
-            setContentView(root());
             return false;
         }
-        if (!u.startsWith("http://")) {
-            showBlk("Bad URL", "Start with http://");
+        if (!(u.startsWith("http://") || u.startsWith("https://"))) {
+            showBlk("Bad URL", "URL must start with http:// or https://");
             return false;
         }
         if (!isEmulator() && u.contains("10.0.2.2")) {
             emuWarn();
+            showBlk("Bad URL", "10.0.2.2 only works inside the emulator. On a real phone, use your laptop Wi-Fi IPv4 and the correct port.");
             return false;
         }
         return true;
     }
 
     private void connErr(Exception e, String u) {
-        if (connTxt != null) connTxt.setText("Cannot reach " + u + ". Same Wi-Fi? Firewall?");
+        String detail = shortErr(e);
+        if (connTxt != null) {
+            connTxt.setText("Failed: " + detail
+                    + ". Check same Wi-Fi, backend running, correct port, and Windows Firewall.");
+        }
         if (statTxt != null) {
             statTxt.setText("Failed");
             statTxt.setTextColor(parse(C_RED));
         }
-        log("err: " + shortErr(e));
+        log("err: " + detail);
     }
 
     private void showBlk(String t, String m) {
@@ -1782,4 +2056,3 @@ public final class MainActivity extends Activity {
         } catch (JSONException ignored) {}
     }
 }
-

@@ -15,7 +15,7 @@ def test_android_declares_incoming_call_receiver():
     assert "android.intent.action.PHONE_STATE" in manifest
 
 
-def test_phone_state_receiver_never_starts_monitoring_without_user_tap():
+def test_phone_state_receiver_auto_starts_monitoring_when_allowed():
     receiver = (
         ANDROID_MAIN
         / "java"
@@ -26,13 +26,14 @@ def test_phone_state_receiver_never_starts_monitoring_without_user_tap():
     ).read_text(encoding="utf-8")
 
     assert "TelephonyManager.EXTRA_STATE_RINGING" in receiver
+    assert "TelephonyManager.EXTRA_STATE_OFFHOOK" in receiver
     assert "CallShieldSettings.isRealCallModeEnabled(context)" in receiver
-    assert "CallShieldRuntime.isActivityVisible()" in receiver
     assert "showIncomingCallNotification" in receiver
-    assert "startMonitoringFromIncomingCall()" not in receiver
+    assert "handlePhoneCallStartedFromReceiver" in receiver
+    assert "handlePhoneCallEndedFromReceiver" in receiver
 
 
-def test_main_activity_requires_manual_start_for_monitoring():
+def test_main_activity_can_auto_start_and_report_real_call_monitoring():
     activity = (
         ANDROID_MAIN
         / "java"
@@ -43,15 +44,48 @@ def test_main_activity_requires_manual_start_for_monitoring():
     ).read_text(encoding="utf-8")
 
     assert "ACTION_OPEN_FROM_CALL_NOTIFICATION" in activity
+    assert "ACTION_OPEN_LAST_REPORT" in activity
     assert "handleNotif" in activity
-    assert "EXTRA_AUTO_START_MONITORING" not in activity
-    assert "handleAutoStartIntent" not in activity
-    assert "startMonitoringFromIncomingCall" not in activity
+    assert "startMonitoringFromIncomingCall" in activity
+    assert "handlePhoneCallStartedFromReceiver" in activity
+    assert "showFinalReport" in activity
+    assert "showReportNotification" in activity
     assert "modeSw" in activity
     assert "Real call mode" in activity
     assert "CallShieldArmedNotifier.showArmed" in activity
     assert "startScan" in activity
     assert "startStreaming(true)" not in activity
+
+
+def test_mobile_app_can_import_saved_call_recording_file():
+    activity = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "MainActivity.java"
+    ).read_text(encoding="utf-8")
+    client = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "CallShieldApiClient.java"
+    ).read_text(encoding="utf-8")
+
+    assert "REQ_PICK_RECORDING" in activity
+    assert "Intent.ACTION_OPEN_DOCUMENT" in activity
+    assert 'pick.setType("audio/*")' in activity
+    assert "Analyze Recording File" in activity
+    assert "analyzeRecordingUri" in activity
+    assert "recordingDisplayName" in activity
+    assert "recordingMimeType" in activity
+    assert "readRecordingBytes" in activity
+    assert "include_transcript=true" in client
+    assert "filename=\\\"" in client
+    assert "Content-Type: " in client
 
 
 def test_start_button_explains_missing_backend_before_recording():
@@ -112,7 +146,7 @@ def test_mobile_app_uses_product_demo_information_architecture():
     assert "riskLabel" in activity
     assert "riskScore" in activity
     assert "sendChunk" in activity
-    assert "RISK SCORE" in activity
+    assert "Final risk level" in activity
 
 
 def test_mobile_app_has_speakerphone_capture_assist():
@@ -322,4 +356,81 @@ def test_mobile_ui_layout_regression():
     assert "THREE-SIGNAL ANALYSIS" not in activity
     assert "OVERALL RISK SCORE" not in activity
     assert "START SCAN" not in activity
+
+
+def test_mobile_scan_screen_uses_compact_dashboard_information_architecture():
+    activity = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "MainActivity.java"
+    ).read_text(encoding="utf-8")
+
+    expected_dashboard_labels = [
+        "CallShield AI",
+        "Session analyzed",
+        "Three Signal Risk Analysis",
+        "Audio Deepfake & Replay",
+        "Scam Language Detection",
+        "Identity Verification",
+        "Final risk level",
+        "Connection",
+        "Microphone",
+        "Heard by CallShield",
+        "Latest result",
+        "Audio fingerprint",
+        "Advanced / debug",
+    ]
+    for label in expected_dashboard_labels:
+        assert label in activity
+
+    outdated_labels = [
+        "Detection status",
+        "Fragment Audio",
+        "Current risk",
+        "RISK SCORE",
+    ]
+    for label in outdated_labels:
+        assert label not in activity
+
+
+def test_mobile_live_ui_does_not_show_safe_when_deepfake_score_is_high():
+    activity = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "MainActivity.java"
+    ).read_text(encoding="utf-8")
+
+    assert "audioReview" in activity
+    assert "AUDIO REVIEW" in activity
+    assert "deepfakeScore(raw) >= 0.5" in activity
+    assert 'audioReview ? "AUDIO REVIEW" : riskBand(sc, band)' in activity
+
+
+def test_mobile_test_connection_handles_https_and_visible_errors():
+    activity = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "MainActivity.java"
+    ).read_text(encoding="utf-8")
+
+    assert 'u.startsWith("http://") || u.startsWith("https://")' in activity
+    assert "URL must start with http:// or https://" in activity
+    assert "Testing..." in activity
+    assert "/health" in (ANDROID_MAIN / "java" / "ai" / "callshield" / "mobile" / "CallShieldApiClient.java").read_text(encoding="utf-8")
+    assert "Last response in" in activity
+    assert "shortErr(e)" in activity
+    assert "correct port" in activity
+    assert "port shown by the backend" in activity
+
+    ok_url_body = activity.split("private boolean okUrl", 1)[1].split("private void connErr", 1)[0]
+    assert "setContentView(root())" not in ok_url_body
 

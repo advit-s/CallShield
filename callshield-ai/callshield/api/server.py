@@ -102,7 +102,7 @@ app.add_middleware(TimingMiddleware)
 @app.on_event("startup")
 def _banner() -> None:
     host = os.environ.get("CALLSHIELD_HOST", "0.0.0.0")
-    port = os.environ.get("CALLSHIELD_PORT", "8010")
+    port = os.environ.get("CALLSHIELD_PORT") or os.environ.get("PORT", "8000")
     emulator_url = f"http://10.0.2.2:{port}"
     print()
     print("=" * 52)

@@ -16,6 +16,10 @@ final class CallShieldRuntime {
 
     static void markActivityHidden(MainActivity activity) {
         activityVisible = false;
+    }
+
+    static void clearActivity(MainActivity activity) {
+        activityVisible = false;
         MainActivity current = currentActivity.get();
         if (current == activity) {
             currentActivity = new WeakReference<>(null);

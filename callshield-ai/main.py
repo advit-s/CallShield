@@ -33,6 +33,10 @@ def run_server():
         except (ValueError, IndexError):
             print("Invalid or missing port argument for --port. Using default.")
 
+    os.environ["PORT"] = str(port)
+    os.environ["CALLSHIELD_PORT"] = str(port)
+    os.environ["CALLSHIELD_HOST"] = host
+
     lan_urls = []
     try:
         hostname = socket.gethostname()

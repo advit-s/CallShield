@@ -70,9 +70,7 @@ public final class SessionAlertAnalyzer {
             ChunkScore chunk = chunks.get(i);
             totalRisk += chunk.riskScore;
             maxRisk = Math.max(maxRisk, chunk.riskScore);
-            if (chunk.deepfakeUsedInFusion || !chunk.transcript.isEmpty()) {
-                maxDeepfakeScore = Math.max(maxDeepfakeScore, chunk.deepfakeScore);
-            }
+            maxDeepfakeScore = Math.max(maxDeepfakeScore, chunk.deepfakeScore);
 
             if ("soft".equalsIgnoreCase(chunk.warningLevel)) {
                 softWarnings += 1;
@@ -142,11 +140,11 @@ public final class SessionAlertAnalyzer {
         if (maxRisk >= 35.0 || averageRisk >= 25.0 || softWarnings > 0 || suspiciousOrWorse > 0) {
             return "REVIEW CALL";
         }
-        if (transcriptChunks == 0 && maxRisk < 1.0 && softWarnings == 0 && hardWarnings == 0) {
-            return "NO CALL AUDIO";
-        }
         if (maxDeepfakeScore >= 0.5) {
             return "AUDIO REVIEW";
+        }
+        if (transcriptChunks == 0 && maxRisk < 1.0 && softWarnings == 0 && hardWarnings == 0) {
+            return "NO CALL AUDIO";
         }
         return "SAFE";
     }
