@@ -4,6 +4,7 @@ Product-grade scam detection with context-aware scoring.
 """
 
 import re
+import math
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -145,10 +146,56 @@ class ScamLanguageEngine:
                    "fauran", "jaldi", "turant", "urgently"],
             "hi": ["abhi", "fauran", "jaldi", "turant"],
             "hinglish": ["abhi karo", "turant", "jaldi se", "jaldi karo"],
-        }
+    },
+# 6b. E-commerce / delivery / customs fraud
+# (sourced from Indian_Multilingual_Scam_Message_Dataset, ecommerce domain)
+"ecommerce_fraud": {
+    "en": ["your parcel customs", "parcel seized", "parcel held at customs",
+        "clearance fee required", "pay to release", "your order requires",
+        "click to proceed", "delivery failed", "dispatch failed",
+        "shipment held", "parcel returned", "customs seized"],
+    "hi": ["पार्सल कस्टम में अटका", "पार्सल रोकी गई"],
+    "hinglish": ["aapka parcel customs me atka hai", "parcel customs me",
+        "pay karke release", "pay karke release kare",
+        "click to proceed", "click to proceed immediately",
+        "details update kare", "details update"],
+},
+
+# 6c. Telecom / DND / winner / recharge scam
+"telecom_scam": {
+    "en": ["your mobile number has been awarded", "you have won a guaranteed",
+        "free ringtone", "call now to claim", "weekly winner",
+        "recharge failed", "plan expired", "dnd service"],
+    "hinglish": ["aapka number awarded hai", "winner hai"],
+},
+
+# 6d. Government / tax / pension / scheme impersonation
+"government_impersonation": {
+    "en": ["tax refund pending", "pension scheme", "government scheme",
+        "lpg subsidy", "aadhaar update", "pan card required",
+        "last notice", "government notice",
+        "immediate action required by government"],
+    "hi": ["कर वापसी", "सरकारी योजना", "आधार अपडेट"],
+    "hinglish": ["aadhaar update", "government notice"],
+},
+
+# 6e. Finance / loan / insurance scam (beyond basic KYC)
+"finance_scam": {
+    "en": ["instant loan approval", "pre-approved loan", "loan disbursement",
+        "insurance claim pending", "policy will lapse", "investment advisory",
+        "stock tip guaranteed", "trading account",
+        "zero cost EMI", "pre-approved limit"],
+    "hi": ["इंस्टेंट लोन", "लोन अपरूवल"],
+    "hinglish": ["instant loan approval", "pre-approved loan",
+        "click to proceed please act now"],
+},
+
+
+
     }
 
-    # --- Benign negation phrases ---
+    
+# --- Benign negation phrases ---
     BENIGN_PHRASES = [
         "surprise party", "birthday", "lost and found",
         "routine checkup", "routine appointment", "annual check",
@@ -237,7 +284,6 @@ class ScamLanguageEngine:
 
             if match_count > 0:
                 # Logarithmic scaling
-                import math
                 score = min(math.log(1 + match_count * 2) / math.log(5), 1.0)
                 scores[category] = score
                 ordered_matches = list(dict.fromkeys(str(mm) for mm in matched_for_cat))
@@ -264,7 +310,7 @@ class ScamLanguageEngine:
         # --- Compute scam score with combination logic ---
         # Distinguish between strong and weak categories
         strong_categories = ["otp_pin_request", "tech_support_scam", "remote_access_request", "bank_kyc_fraud"]
-        weak_categories = ["family_emergency", "alternate_number_claim", "secrecy_pressure", "upi_payment_request", "job_investment_scam", "police_legal_threat"]
+        weak_categories = ["family_emergency", "alternate_number_claim", "secrecy_pressure", "upi_payment_request", "job_investment_scam", "police_legal_threat", "ecommerce_fraud", "telecom_scam", "government_impersonation", "finance_scam"]
         
         strong_score = max([scores.get(c, 0.0) for c in strong_categories] + [0.0])
         weak_score = max([scores.get(c, 0.0) for c in weak_categories] + [0.0])
@@ -404,9 +450,13 @@ class ScamLanguageEngine:
             "remote_access_request": ScamType.REMOTE_ACCESS_REQUEST,
             "secrecy_pressure": ScamType.SECRECY_PRESSURE,
             "alternate_number_claim": ScamType.ALTERNATE_NUMBER_CLAIM,
-        }
+    "ecommerce_fraud": ScamType.BANK_KYC_FRAUD,
+    "telecom_scam": ScamType.JOB_INVESTMENT_SCAM,
+    "government_impersonation": ScamType.POLICE_LEGAL_THREAT,
+    "finance_scam": ScamType.JOB_INVESTMENT_SCAM,
+}
 
-        return type_map.get(best_type, ScamType.UNKNOWN), best_score
+ return type_map.get(best_type, ScamType.UNKNOWN), best_score
 
     @staticmethod
     def _has_direct_payment_pressure(text_lower: str) -> bool:
@@ -420,6 +470,13 @@ class ScamLanguageEngine:
             r"\bmoney\s+please\b",
             r"\bpaise\s+bhejo\b",
             r"\bpaisa\s+bhejo\b",
+            # Amount-specific: "send Rs 50000 now", "transfer 50000 rupees"
+            r"\b(?:send|transfer)\s+(?:rs\.?|inr|rupees?)\s*[\d,]+",
+            r"\b(?:send|transfer)\s+[\d,]+\s*(?:rupees?|rs\.?|inr)\b",
+            # Hinglish amount variants with urgency
+            r"\bsend\s+(?:rs\.?|rupees?|₹)\s*[\d,]+\s*(?:now|abhi|turant|fauran)\b",
+            r"\b(?:paise|paisa)\s+bhejo\b",
+            r"\bturant\s+(?:paise|paisa)\s+bhejo\b",
         ]
         return any(re.search(pattern, text_lower, re.IGNORECASE) for pattern in patterns)
 

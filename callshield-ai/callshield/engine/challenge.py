@@ -5,7 +5,6 @@ to the user WITHOUT ever blocking or interfering with the call.
 
 This is the "user control" layer — the AI assists, the human decides.
 """
-
 import random
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
@@ -109,12 +108,12 @@ class ChallengeGenerator:
         """Generate appropriate challenges based on the detected scam type."""
         challenges = []
 
-        # Always include a general challenge
-        challenges.extend(self.CHALLENGES.get("general", [])[:2])
-
-        # Add scam-specific challenges
+        # Add scam-specific challenges first
         if scam_type in self.CHALLENGES:
             challenges.extend(self.CHALLENGES[scam_type])
+
+        # Then fill up to the limit with general challenges
+        challenges.extend(self.CHALLENGES.get("general", []))
 
         # If risk is critical, add preventive advice
         if risk_band in ("high", "critical"):

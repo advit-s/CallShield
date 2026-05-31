@@ -1,4 +1,9 @@
+# Local-only project metadata (not intended for GitHub)
 /.claude
+/.agents/
+/PRIVACY.md
+/DESIGN.md
+/skills-lock.json
 
 # Local datasets for training/evaluation. Keep on disk, do not push to GitHub.
 /ASVspoof_2019_LA/
@@ -9,6 +14,8 @@
 /SMS_Spam_Multilingual_Collection_Dataset/
 /WaveFake/
 /sms-otp-spam-dataset/
+/.agents/
+/.claude/
 
 # Python caches, packaging output, and virtual environments
 __pycache__/
@@ -126,6 +133,10 @@ Thumbs.db
 /AUDIT_REPORT*.md
 /deep-research-report.md
 /callshield-ai/AUDIT_REPORT*.md
+
+# Claude Code / skills lock files (machine-local)
+skills-lock.json
+/callshield-ai/CLAUDE.md
 
 # Android generated output and machine-local config
 /callshield-ai/android/**/.gradle/

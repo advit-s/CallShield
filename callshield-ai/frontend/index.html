@@ -445,7 +445,7 @@
                     updateBar('id', line.id, line.id);
 
                     // Calculate risk
-                    const chunkRisk = 0.40 * line.df + 0.30 * line.scam + 0.20 * line.id;
+                    const chunkRisk = 0.45 * line.scam + 0.20 * line.df + 0.15 * line.id;
                     riskScore = Math.max(riskScore, chunkRisk * 100);
                     if (line.scam > 0.5 || line.df > 0.5) {
                         riskScore = Math.min(100, riskScore + 10);

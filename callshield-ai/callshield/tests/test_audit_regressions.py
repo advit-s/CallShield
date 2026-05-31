@@ -1,4 +1,4 @@
-"""Regression tests for audit-driven hardening fixes."""
+﻿"""Regression tests for audit-driven hardening fixes."""
 
 import os
 import json
@@ -237,8 +237,8 @@ def test_deepfake_detector_ignores_no_speech_audio(monkeypatch, tmp_path):
     detector.model = object()
     detector.model_status = "trained_model_loaded"
     detector.calibration_status = "calibrated"
-    detector.operating_threshold = 0.1978759765625
-    detector.soft_audio_threshold = 0.1978759765625
+    detector.operating_threshold = 0.161376953125
+    detector.soft_audio_threshold = 0.161376953125
     detector.hard_audio_threshold = 0.5
     detector.target_fpr = 0.1
     detector.device = "cpu"
@@ -339,3 +339,47 @@ def test_asr_suppresses_common_whisper_outro_hallucination():
         "\u3054\u8996\u8074\u3042\u308a\u304c\u3068\u3046\u3054\u3056\u3044\u307e\u3057\u305f",
         "ja",
     )
+
+
+def test_score_call_audio_path_traversal_protection(monkeypatch):
+    monkeypatch.setenv("CALLSHIELD_DEBUG", "true")
+    response = client.post(
+        "/score-call",
+        json={
+            "call_id": "test-traversal-001",
+            "audio_path": "../../../../../etc/passwd"
+        }
+    )
+    assert response.status_code == 400
+    assert "Access denied" in response.json()["detail"]
+
+
+def test_user_speaker_deletion_cascade(monkeypatch):
+    monkeypatch.setenv("CALLSHIELD_ADMIN_KEY", "audit-secret")
+
+    # 1. Enroll speaker with a user_id
+    enroll_response = client.post(
+        "/verify-speaker",
+        json={
+            "speaker_id": "speaker-biometric-cascade",
+            "user_id": "user-to-purge-biometrics",
+            "name": "Biometric Cascade User",
+            "consent_given": True
+        }
+    )
+    assert enroll_response.status_code == 200
+
+    # Verify it is in the database and user_id is set
+    speaker = server.db.get_speaker("speaker-biometric-cascade")
+    assert speaker is not None
+    assert speaker["user_id"] == "user-to-purge-biometrics"
+
+    # 2. Deleting the user data must purge the speaker profile as well
+    delete_response = client.delete(
+        "/user-data/user-to-purge-biometrics",
+        headers={"X-Admin-API-Key": "audit-secret"},
+    )
+    assert delete_response.status_code == 200
+
+    # Verify speaker biometric record is completely gone!
+    assert server.db.get_speaker("speaker-biometric-cascade") is None

@@ -299,6 +299,82 @@ def test_verify_speaker_with_consent():
     assert resp.json()["status"] == "consent_recorded"
     assert resp.json()["embedding_stored"] is False
 
+# ============= /score-call debug mode path validation =============
+
+def test_score_call_debug_mode_traversal_rejected():
+    """Debug mode ON but audio_path escapes project root — must be rejected."""
+    old = os.environ.get("CALLSHIELD_DEBUG")
+    os.environ["CALLSHIELD_DEBUG"] = "true"
+    try:
+        resp = client.post("/score-call", json={
+            "call_id": "traversal-test",
+            "transcript": "",
+            "audio_path": "../../../../../etc/passwd",
+        })
+    finally:
+        if old is None:
+            os.environ.pop("CALLSHIELD_DEBUG", None)
+        else:
+            os.environ["CALLSHIELD_DEBUG"] = old
+    assert resp.status_code == 400
+
+def test_score_call_debug_mode_sibling_prefix_rejected():
+    """Debug mode ON but path is a sibling directory — must be rejected."""
+    old = os.environ.get("CALLSHIELD_DEBUG")
+    os.environ["CALLSHIELD_DEBUG"] = "true"
+    try:
+        resp = client.post("/score-call", json={
+            "call_id": "sibling-test",
+            "transcript": "",
+            "audio_path": r"C:\some\other\callshield-ai-evil\file.wav",
+        })
+    finally:
+        if old is None:
+            os.environ.pop("CALLSHIELD_DEBUG", None)
+        else:
+            os.environ["CALLSHIELD_DEBUG"] = old
+    assert resp.status_code == 400
+
+def test_score_call_debug_mode_missing_file_returns_404():
+    """Debug mode ON, path inside project but file missing — 404."""
+    old = os.environ.get("CALLSHIELD_DEBUG")
+    os.environ["CALLSHIELD_DEBUG"] = "true"
+    try:
+        # Build a path inside callshield-ai (project root for the server) but the file does not exist.
+        # test_api.py lives at callshield-ai/callshield/tests/test_api.py.
+        # Going up 4 levels reaches callshield-ai/.
+        base = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(base, "..", ".."))
+        missing = os.path.join(project_root, "missing_debug_only.wav")
+        resp = client.post("/score-call", json={
+            "call_id": "missing-test",
+            "transcript": "",
+            "audio_path": missing,
+        })
+    finally:
+        if old is None:
+            os.environ.pop("CALLSHIELD_DEBUG", None)
+        else:
+            os.environ["CALLSHIELD_DEBUG"] = old
+    assert resp.status_code == 404
+
+def test_score_call_no_debug_mode_rejects_audio_path():
+    """Without debug mode, any audio_path must be rejected outright."""
+    old = os.environ.get("CALLSHIELD_DEBUG")
+    os.environ.pop("CALLSHIELD_DEBUG", None)
+    try:
+        resp = client.post("/score-call", json={
+            "call_id": "no-debug-test",
+            "transcript": "hello",
+            "audio_path": "/some/path.wav",
+        })
+    finally:
+        if old is None:
+            os.environ.pop("CALLSHIELD_DEBUG", None)
+        else:
+            os.environ["CALLSHIELD_DEBUG"] = old
+    assert resp.status_code == 400
+
 
 if __name__ == "__main__":
     # Run all tests

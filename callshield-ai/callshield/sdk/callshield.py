@@ -44,7 +44,7 @@ class CallShieldResult:
 class CallShieldSDK:
     """v2.4.0 SDK - Mobile ASR and Scam NLP Hardening."""
 
-    def __init__(self, 
+    def __init__(self,
                  custom_weights: Optional[Dict[str, float]] = None,
                  deepfake_model_path: Optional[str] = None):
         self.scam_engine = ScamLanguageEngine()
@@ -76,7 +76,7 @@ class CallShieldSDK:
             "speaker_verification": "placeholder",
         }
 
-    def analyze_audio(self, audio_path: str, transcript: str, 
+    def analyze_audio(self, audio_path: str, transcript: str,
                       speaker_id: Optional[str] = None) -> CallShieldResult:
         """Perform combined audio and text analysis."""
         # 1. Run deepfake detection
@@ -110,14 +110,14 @@ class CallShieldSDK:
                     "has no scam-like language or urgency."
                 ),
             }
-        
+
         # 2. Run standard analysis with audio signal
         result = self.analyze_transcript(
             text=transcript,
             speaker_id=speaker_id,
             audio_deepfake_score=deepfake_score
         )
-        
+
         # 3. Inject audio analysis details
         result.audio_analysis = audio_result
         if (
@@ -126,7 +126,7 @@ class CallShieldSDK:
             and result.risk_band != "safe"
         ):
             result.why_flagged += " Possible synthetic or cloned voice detected."
-            
+
         return result
 
     def analyze_transcript(self, text: str,
@@ -137,15 +137,32 @@ class CallShieldSDK:
         # 1. Analyze scam language
         analysis = self.scam_engine.analyze(text)
 
+        # Enforce the same text-corroboration gate to pre-computed/external scores for safety
+        audio_can_support_fusion = (
+            bool(text.strip())
+            and (
+                analysis.scam_score >= 0.20
+                or analysis.urgency_score > 0.0
+                or bool(analysis.detected_cues)
+            )
+        )
+
+        fused_deepfake_score = audio_deepfake_score
+        external_gate = None
+
+        if audio_deepfake_score > 0.0 and not audio_can_support_fusion:
+            fused_deepfake_score = 0.0
+            external_gate = "held_for_text_corroboration"
+
         # 2. Build signal scores
         # More aggressive rule bonus for strong scam indicators.
         bonus = min(len(analysis.detected_cues) * 0.05, 0.25)
         if analysis.scam_score > 0.8:
             bonus += 0.15  # Extra boost for high-confidence language matches
-            
+
         signals = SignalScores(
             scam_language=analysis.scam_score,
-            deepfake=audio_deepfake_score,
+            deepfake=fused_deepfake_score,
             identity_mismatch=identity_mismatch,
             urgency=analysis.urgency_score,
             verification_failed=False,
@@ -183,7 +200,7 @@ class CallShieldSDK:
         # 6. Build "why this was flagged"
         why = self._explain_why(analysis, calibrated)
 
-        return CallShieldResult(
+        final_result = CallShieldResult(
             risk_score=result.risk_score,
             risk_band=calibrated.risk_band,
             confidence=calibrated.confidence_level.value,
@@ -202,6 +219,26 @@ class CallShieldSDK:
                 for c in challenges
             ]
         )
+
+        if audio_deepfake_score > 0.0:
+            final_result.audio_analysis = {
+                "deepfake_score": audio_deepfake_score,
+                "fusion_deepfake_score": fused_deepfake_score,
+                "used_in_fusion": fused_deepfake_score > 0.0,
+                "audio_signal_strength": "strong" if audio_deepfake_score >= 0.5 else "weak",
+                "model_status": "external_score_supplied",
+                "provenance": "external"
+            }
+            if external_gate:
+                final_result.audio_analysis["fusion_gate"] = external_gate
+                final_result.audio_analysis["note"] = (
+                    "External deepfake score shown but not fused because transcript "
+                    "has no scam-like language or urgency."
+                )
+            elif audio_deepfake_score >= 0.5 and final_result.risk_band != "safe":
+                final_result.why_flagged += " Possible synthetic or cloned voice detected (external signal)."
+
+        return final_result
 
     def _explain_why(self, analysis, calibrated) -> str:
         """Build user-facing 'why this was flagged' explanation."""

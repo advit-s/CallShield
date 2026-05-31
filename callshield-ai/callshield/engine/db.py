@@ -42,6 +42,7 @@ class CallShieldDatabase:
         # Enable WAL mode for high concurrency (concurrent reads and writes)
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
         return conn
 
     def _initialize_db(self) -> None:
@@ -76,12 +77,19 @@ class CallShieldDatabase:
                     conn.execute("""
                         CREATE TABLE IF NOT EXISTS speakers (
                             speaker_id TEXT PRIMARY KEY,
+                            user_id TEXT,
                             name TEXT,
                             consent_given INTEGER,
                             voice_embedding_json TEXT,
                             timestamp TEXT
                         )
                     """)
+                    # Alter table to add user_id column if it doesn't exist (handles existing DB migrations)
+                    try:
+                        conn.execute("ALTER TABLE speakers ADD COLUMN user_id TEXT;")
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column" not in str(exc).lower():
+                            raise
             finally:
                 conn.close()
 
@@ -123,7 +131,7 @@ class CallShieldDatabase:
             ).fetchone()
             if not row:
                 return None
-            
+
             result = json.loads(row["result_json"])
             return {
                 "call_id": row["call_id"],
@@ -184,7 +192,8 @@ class CallShieldDatabase:
             conn.close()
 
     def store_speaker(self, speaker_id: str, name: str, consent_given: bool,
-                      voice_embedding: Optional[List[float]] = None) -> None:
+                      voice_embedding: Optional[List[float]] = None,
+                      user_id: Optional[str] = None) -> None:
         """Store consented speaker verification profile."""
         with _DB_LOCK:
             conn = self._get_connection()
@@ -192,9 +201,10 @@ class CallShieldDatabase:
                 with conn:
                     conn.execute(
                         """
-                        INSERT INTO speakers (speaker_id, name, consent_given, voice_embedding_json, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO speakers (speaker_id, user_id, name, consent_given, voice_embedding_json, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         ON CONFLICT(speaker_id) DO UPDATE SET
+                            user_id = COALESCE(excluded.user_id, speakers.user_id),
                             name = excluded.name,
                             consent_given = excluded.consent_given,
                             voice_embedding_json = COALESCE(excluded.voice_embedding_json, speakers.voice_embedding_json),
@@ -202,6 +212,7 @@ class CallShieldDatabase:
                         """,
                         (
                             speaker_id,
+                            user_id,
                             name,
                             1 if consent_given else 0,
                             json.dumps(voice_embedding) if voice_embedding else None,
@@ -216,13 +227,14 @@ class CallShieldDatabase:
         conn = self._get_connection()
         try:
             row = conn.execute(
-                "SELECT speaker_id, name, consent_given, voice_embedding_json, timestamp FROM speakers WHERE speaker_id = ?",
+                "SELECT speaker_id, user_id, name, consent_given, voice_embedding_json, timestamp FROM speakers WHERE speaker_id = ?",
                 (speaker_id,)
             ).fetchone()
             if not row:
                 return None
             return {
                 "speaker_id": row["speaker_id"],
+                "user_id": row["user_id"],
                 "name": row["name"],
                 "consent_given": bool(row["consent_given"]),
                 "voice_embedding": json.loads(row["voice_embedding_json"]) if row["voice_embedding_json"] else None,
@@ -244,22 +256,46 @@ class CallShieldDatabase:
             finally:
                 conn.close()
 
-    def delete_user_data(self, user_id: str) -> int:
-        """Delete all calls and feedback matching user_id. Returns delete count."""
+    def delete_user_data(self, user_id: str) -> Dict[str, int]:
+        """Delete all calls, feedback, and speaker profiles matching user_id.
+
+        Returns dict with counts: deleted_calls, deleted_speakers, deleted_feedback.
+        """
         with _DB_LOCK:
             conn = self._get_connection()
             try:
                 with conn:
                     conn.execute("PRAGMA foreign_keys = ON;")
-                    # 1. Fetch matching calls first for reporting delete count
-                    call_rows = conn.execute("SELECT call_id FROM calls WHERE user_id = ?", (user_id,)).fetchall()
+
+                    # 1. Count and delete speaker records before deleting calls
+                    speaker_cursor = conn.execute(
+                        "DELETE FROM speakers WHERE user_id = ?", (user_id,)
+                    )
+                    deleted_speakers = speaker_cursor.rowcount
+
+                    # 2. Fetch matching calls for reporting delete count
+                    call_rows = conn.execute(
+                        "SELECT call_id FROM calls WHERE user_id = ?", (user_id,)
+                    ).fetchall()
                     call_ids = [row["call_id"] for row in call_rows]
-                    
+
                     if not call_ids:
-                        return 0
-                    
-                    # 2. Deletions cascade to feedback table
-                    cursor = conn.execute("DELETE FROM calls WHERE user_id = ?", (user_id,))
-                    return cursor.rowcount
+                        return {
+                            "deleted_calls": 0,
+                            "deleted_speakers": deleted_speakers,
+                            "deleted_feedback": 0,
+                        }
+
+                    # 3. Deletions cascade to feedback table
+                    call_cursor = conn.execute(
+                        "DELETE FROM calls WHERE user_id = ?", (user_id,)
+                    )
+                    deleted_calls = call_cursor.rowcount
+
+                    return {
+                        "deleted_calls": deleted_calls,
+                        "deleted_speakers": deleted_speakers,
+                        "deleted_feedback": deleted_calls,
+                    }
             finally:
                 conn.close()

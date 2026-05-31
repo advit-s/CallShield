@@ -37,7 +37,7 @@ class TranscriptRequest(BaseModel):
 
 
 class AudioRequest(BaseModel):
-    """POST /analyze-audio request."""
+    """POST /analyze-audio request (reserved for future Form-Multipart API integrations; currently unused)."""
     call_id: str = Field(..., description="Unique call identifier")
     user_id: Optional[str] = Field(None, description="User identifier for data management")
     enrolled_speaker_id: Optional[str] = Field(None, description="Optional enrolled speaker ID")
@@ -93,6 +93,7 @@ class RiskResult(BaseModel):
 class SpeakerRequest(BaseModel):
     """POST /verify-speaker request."""
     speaker_id: str
+    user_id: Optional[str] = Field(None, description="Optional user identifier associated with the speaker record")
     name: str
     consent_given: bool = Field(False, description="User explicitly consented to voice enrollment")
 
@@ -165,6 +166,8 @@ class UserDataDeletionResponse(BaseModel):
     """DELETE /user-data/:id response."""
     user_id: str
     deleted_calls: int
+    deleted_speakers: int = 0
+    deleted_feedback: int = 0
     status: str
     timestamp: str = ""
 

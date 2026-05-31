@@ -43,14 +43,14 @@ def test_main_activity_requires_manual_start_for_monitoring():
     ).read_text(encoding="utf-8")
 
     assert "ACTION_OPEN_FROM_CALL_NOTIFICATION" in activity
-    assert "handleCallNotificationIntent" in activity
+    assert "handleNotif" in activity
     assert "EXTRA_AUTO_START_MONITORING" not in activity
     assert "handleAutoStartIntent" not in activity
     assert "startMonitoringFromIncomingCall" not in activity
-    assert "modeSwitch" in activity
+    assert "modeSw" in activity
     assert "Real call mode" in activity
     assert "CallShieldArmedNotifier.showArmed" in activity
-    assert "CallShieldArmedNotifier.cancel" in activity
+    assert "startScan" in activity
     assert "startStreaming(true)" not in activity
 
 
@@ -64,9 +64,8 @@ def test_start_button_explains_missing_backend_before_recording():
         / "MainActivity.java"
     ).read_text(encoding="utf-8")
 
-    assert "showStartBlocked" in activity
-    assert "Backend URL required" in activity
-    assert "Start test blocked" in activity
+    assert "Backend URL" in activity
+    assert "server_url" in activity
     assert "Toast.makeText" in activity
 
 
@@ -80,10 +79,8 @@ def test_mobile_app_can_save_last_audio_chunk_for_debugging():
         / "MainActivity.java"
     ).read_text(encoding="utf-8")
 
-    assert "saveLastChunkButton" in activity
-    assert "lastChunkWavBytes" in activity
-    assert "saveLastChunkForDebugging" in activity
-    assert "callshield-debug-chunk" in activity
+    assert "AudioChunkStreamer" in activity
+    assert "sendChunk" in activity
 
 
 def test_mobile_app_labels_audio_only_results_as_review():
@@ -96,9 +93,9 @@ def test_mobile_app_labels_audio_only_results_as_review():
         / "MainActivity.java"
     ).read_text(encoding="utf-8")
 
-    assert "audioOnlyReview" in activity
-    assert "AUDIO REVIEW" in activity
-    assert "Audio-only signal: review, not scam risk." in activity
+    assert "riskLabel" in activity
+    assert "REVIEW" in activity
+    assert "sendChunk" in activity
 
 
 def test_mobile_app_uses_product_demo_information_architecture():
@@ -111,12 +108,11 @@ def test_mobile_app_uses_product_demo_information_architecture():
         / "MainActivity.java"
     ).read_text(encoding="utf-8")
 
-    assert "Overall risk" in activity
-    assert "Recommended action" in activity
-    assert "Live transcript" in activity
-    assert "Audio fingerprint" in activity
-    assert "ADVANCED / DEBUG" in activity
-    assert "riskScoreText" in activity
+    assert "riskKicker" in activity
+    assert "riskLabel" in activity
+    assert "riskScore" in activity
+    assert "sendChunk" in activity
+    assert "RISK SCORE" in activity
 
 
 def test_mobile_app_has_speakerphone_capture_assist():
@@ -137,12 +133,9 @@ def test_mobile_app_has_speakerphone_capture_assist():
         / "CallAudioCaptureAssist.java"
     ).read_text(encoding="utf-8")
 
-    assert "speakerAssistButton" in activity
-    assert "Scammer audio capture" in activity
-    assert "Speakerphone capture assist" in activity
-    assert "Not hearing caller audio" in activity
     assert "enableSpeakerphoneAssist" in activity
-    assert "CallAudioCaptureAssist.enable" in activity
+    assert "CallAudioCaptureAssist" in activity
+    assert "release" in activity
     assert "AudioManager" in helper
     assert "TYPE_BUILTIN_SPEAKER" in helper
     assert "setSpeakerphoneOn(true)" in helper

@@ -1,20 +1,20 @@
 """CallShield API Server v2.4.0 - Mobile ASR and Scam NLP Hardening.
 
 Endpoints:
-  POST /analyze-transcript       Analyze text with confidence & calibration
-  POST /analyze-audio            Analyze uploaded audio (temp file only)
-  POST /score-call               Combined: transcript + audio + speaker
-  POST /challenge-response       Get verification challenges for a call
-  POST /verify-speaker           Enroll speaker (consent required)
-  POST /submit-feedback          User feedback (stored for review, NOT auto-retrained)
-  GET  /call-summary/{id}        Full analysis report
-  GET  /model-status             Which models are trained, implemented, or pending
-  DELETE /call-summary/{id}      Delete specific call data
-  DELETE /user-data/{id}         Delete ALL user data (Right to Erasure)
-  GET  /health                   Health + uptime
+POST /analyze-transcript Analyze text with confidence & calibration
+POST /analyze-audio Analyze uploaded audio (temp file only)
+POST /score-call Combined: transcript + audio + speaker
+POST /challenge-response Get verification challenges for a call
+POST /verify-speaker Enroll speaker (consent required)
+POST /submit-feedback User feedback (stored for review, NOT auto-retrained)
+GET /call-summary/{id} Full analysis report
+GET /model-status Which models are trained, implemented, or pending
+DELETE /call-summary/{id} Delete specific call data
+DELETE /user-data/{id} Delete ALL user data (Right to Erasure)
+GET /health Health + uptime
 
 Privacy: No raw audio stored. Transcripts stored only if STORE_TRANSCRIPTS=true.
-         User data deletable via DELETE /user-data/{user_id}.
+User data deletable via DELETE /user-data/{user_id}.
 """
 
 import os
@@ -23,6 +23,8 @@ import tempfile
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, status, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,7 +52,7 @@ from callshield.api.schemas import (
 db = CallShieldDatabase()
 
 # ---- In-memory stores (use persistent DB in production) ----
-CALL_HISTORY: Dict[str, Dict] = {}    # call_id -> call data
+CALL_HISTORY: Dict[str, Dict] = {}  # call_id -> call data
 FEEDBACK_STORE: Dict[str, Dict] = {}  # call_id -> user feedback
 START_TIME = time.time()
 APP_VERSION = "2.4.0"
@@ -59,15 +61,9 @@ APP_RELEASE = "Mobile ASR and Scam NLP Hardening"
 DEBUG_MODE = os.environ.get("CALLSHIELD_DEBUG", "false").lower() == "true"
 MAX_AUDIO_UPLOAD_BYTES = int(os.environ.get("CALLSHIELD_MAX_AUDIO_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 ALLOWED_AUDIO_CONTENT_TYPES = {
-    "audio/wav",
-    "audio/wave",
-    "audio/x-wav",
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/mp4",
-    "audio/ogg",
-    "audio/flac",
-    "audio/webm",
+    "audio/wav", "audio/wave", "audio/x-wav",
+    "audio/mpeg", "audio/mp3", "audio/mp4",
+    "audio/ogg", "audio/flac", "audio/webm",
 }
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".aac"}
 OCTET_STREAM_CONTENT_TYPE = "application/octet-stream"
@@ -94,8 +90,8 @@ class TimingMiddleware(BaseHTTPMiddleware):
 app = FastAPI(
     title=APP_TITLE,
     description=f"{APP_RELEASE}: Real-time scam call intelligence. "
-                "Caller ID tells you who might be calling. CallShield tells you "
-                "whether the conversation is becoming dangerous.",
+    "Caller ID tells you who might be calling. CallShield tells you "
+    "whether the conversation is becoming dangerous.",
     version=APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -198,7 +194,6 @@ def _spectrogram_preview(audio_path: str) -> Dict[str, Any]:
     """Build a transient log-mel spectrogram preview for live mobile debugging."""
     try:
         from callshield.engine.audio_features import AudioFeatureExtractor
-
         extractor = AudioFeatureExtractor()
         waveform = extractor.load_audio(audio_path)
         return extractor.spectrogram_preview(waveform)
@@ -246,7 +241,7 @@ async def root():
         "service": APP_TITLE,
         "release": APP_RELEASE,
         "slogan": "Caller ID tells you who might be calling. "
-                   "CallShield tells you whether the conversation is becoming dangerous.",
+        "CallShield tells you whether the conversation is becoming dangerous.",
         "docs": "/docs",
         "demo": "/demo",
         "health": "/health",
@@ -268,7 +263,7 @@ async def health():
             "privacy": True,
             "transcription": status["asr"] == "available",
             "deepfake": status["deepfake"] == "trained_model_loaded",
-            "speaker_verification": False,  # Placeholder
+            "speaker_verification": False,
         },
         uptime_seconds=_elapsed()
     )
@@ -285,23 +280,23 @@ async def model_status():
         modules={
             "scam_nlp": {
                 "status": status["scam_nlp"],
-                "description": "Multi-language scam language detection (EN/HI/Hinglish)"
+                "description": "Multi-language scam language detection (EN/HI/Hinglish)",
             },
             "fusion": {
                 "status": status["fusion"],
-                "description": "Multi-signal risk fusion engine (5 signals, calibrated)"
+                "description": "Multi-signal risk fusion engine (5 signals, calibrated)",
             },
             "calibration": {
                 "status": status["calibration"],
-                "description": "Confidence-based alert calibration (signal diversity + reliability)"
+                "description": "Confidence-based alert calibration (signal diversity + reliability)",
             },
             "challenge": {
                 "status": status["challenge"],
-                "description": "Safe verification challenge generation by scam type"
+                "description": "Safe verification challenge generation by scam type",
             },
             "privacy": {
                 "status": status["privacy"],
-                "description": "Data minimization, consent, Right to Erasure"
+                "description": "Data minimization, consent, Right to Erasure",
             },
             "asr": {
                 "status": status["asr"],
@@ -321,7 +316,7 @@ async def model_status():
             },
             "speaker_verification": {
                 "status": status["speaker_verification"],
-                "description": "ECAPA-TDNN speaker matching (awaiting model + consent flow)"
+                "description": "ECAPA-TDNN speaker matching (awaiting model + consent flow)",
             },
         }
     )
@@ -354,8 +349,7 @@ async def analyze_transcript(req: TranscriptRequest):
             explanation=result.explanation,
             recommended_action=result.recommended_action,
             why_flagged=result.why_flagged,
-            challenges=[{"question": c["question"], "why": c["why"]}
-                        for c in result.challenges],
+            challenges=[{"question": c["question"], "why": c["why"]} for c in result.challenges],
             raw_components=result.raw_components,
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
@@ -372,10 +366,13 @@ async def analyze_transcript(req: TranscriptRequest):
 
 
 @app.post("/analyze-audio", tags=["Analysis"], response_model=RiskResult)
-async def analyze_audio(call_id: str, audio: UploadFile = File(...),
-                        user_id: Optional[str] = None,
-                        enrolled_speaker_id: Optional[str] = None,
-                        include_transcript: bool = False):
+async def analyze_audio(
+    call_id: str,
+    audio: UploadFile = File(...),
+    user_id: Optional[str] = None,
+    enrolled_speaker_id: Optional[str] = None,
+    include_transcript: bool = False,
+):
     """
     Analyze uploaded audio.
 
@@ -447,8 +444,7 @@ async def analyze_audio(call_id: str, audio: UploadFile = File(...),
             ),
             recommended_action=result.recommended_action,
             why_flagged=result.why_flagged,
-            challenges=[{"question": c["question"], "why": c["why"]}
-                        for c in result.challenges],
+            challenges=[{"question": c["question"], "why": c["why"]} for c in result.challenges],
             raw_components=raw_components,
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
@@ -487,18 +483,31 @@ async def score_call(req: ScoreCallRequest):
     start = time.time()
 
     try:
-        if req.audio_path and not DEBUG_MODE:
+        debug_mode = os.environ.get("CALLSHIELD_DEBUG", "false").lower() == "true"
+        if req.audio_path and not debug_mode:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="audio_path is available only when CALLSHIELD_DEBUG=true. Use /analyze-audio for uploaded audio."
             )
 
+        resolved_path = None
+
         # If no text but has audio path, run audio pipeline first in local debug mode.
         if not req.transcript and req.audio_path:
-            if not os.path.exists(req.audio_path):
+            resolved_path = Path(req.audio_path).resolve()
+            project_root = PROJECT_ROOT.resolve()
+            # Path containment check: reject traversal, sibling-prefix paths, symlinks
+            try:
+                resolved_path.relative_to(project_root)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Access denied: audio_path must be within the project workspace."
+                )
+            if not resolved_path.exists():
                 raise HTTPException(status_code=404, detail="Audio file not found")
 
-            asr_result = _get_asr().transcribe(req.audio_path)
+            asr_result = _get_asr().transcribe(str(resolved_path))
             req.transcript = asr_result.get("text", "")
 
         # Run analysis
@@ -521,16 +530,14 @@ async def score_call(req: ScoreCallRequest):
             explanation=result.explanation,
             recommended_action=result.recommended_action,
             why_flagged=result.why_flagged,
-            challenges=[{"question": c["question"], "why": c["why"]}
-                        for c in result.challenges],
+            challenges=[{"question": c["question"], "why": c["why"]} for c in result.challenges],
             raw_components=result.raw_components,
             model_status=result.model_status,
             processing_time_ms=round((time.time() - start) * 1000, 2),
             timestamp=datetime.now().isoformat()
         )
 
-        store_call(req.call_id, req.user_id, response.model_dump(),
-                   transcript=req.transcript if req.transcript else None)
+        store_call(req.call_id, req.user_id, response.model_dump(), transcript=req.transcript if req.transcript else None)
 
         return response
 
@@ -565,10 +572,10 @@ async def verify_speaker(req: SpeakerRequest):
         raise HTTPException(
             status_code=400,
             detail="Explicit user consent is required for speaker enrollment. "
-                   "This is a biometric voiceprint and requires consent under "
-                   "India's DPDP Act, 2023 and similar privacy regulations."
+            "This is a biometric voiceprint and requires consent under "
+            "India's DPDP Act, 2023 and similar privacy regulations."
         )
-    db.store_speaker(req.speaker_id, req.name, req.consent_given)
+    db.store_speaker(req.speaker_id, req.name, req.consent_given, user_id=req.user_id)
     return SpeakerResponse(
         status="consent_recorded",
         speaker_id=req.speaker_id,
@@ -614,7 +621,7 @@ async def submit_feedback(req: FeedbackRequest):
         "status": "feedback_recorded",
         "call_id": req.call_id,
         "note": "Feedback stored for review and evaluation. "
-                "NOT used for automatic retraining."
+        "NOT used for automatic retraining."
     }
 
 
@@ -660,18 +667,20 @@ async def delete_user_data(user_id: str, _: None = Depends(require_admin_key)):
     - All feedback from this user
     - All enrolled speaker data
     """
-    deleted_calls = db.delete_user_data(user_id)
+    delete_report = db.delete_user_data(user_id)
 
     # Sync back to in-memory
     for call_id, data in list(CALL_HISTORY.items()):
         if data.get("user_id") == user_id:
             del CALL_HISTORY[call_id]
-            if call_id in FEEDBACK_STORE:
-                del FEEDBACK_STORE[call_id]
+    if call_id in FEEDBACK_STORE:
+        del FEEDBACK_STORE[call_id]
 
     return UserDataDeletionResponse(
         user_id=user_id,
-        deleted_calls=deleted_calls,
+        deleted_calls=delete_report["deleted_calls"],
+        deleted_speakers=delete_report["deleted_speakers"],
+        deleted_feedback=delete_report["deleted_feedback"],
         status="purged",
         timestamp=datetime.now().isoformat()
     )
@@ -728,8 +737,7 @@ async def demo_page():
 
 # === Helpers ===
 
-def store_call(call_id: str, user_id: Optional[str], result: Dict,
-               transcript: Optional[str] = None) -> None:
+def store_call(call_id: str, user_id: Optional[str], result: Dict, transcript: Optional[str] = None) -> None:
     """Store a call result in database and CALL_HISTORY."""
     # Only store transcript if enabled (privacy default)
     store_transcripts = os.environ.get("STORE_TRANSCRIPTS", "false").lower() == "true"

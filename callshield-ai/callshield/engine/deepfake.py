@@ -90,7 +90,7 @@ class DeepFakeDetector:
         self.model_status = "pipeline_implemented_no_trained_model"
         self.calibration_status = "uncalibrated"
         self.operating_threshold = 0.5
-        self.soft_audio_threshold = 0.5
+        self.soft_audio_threshold = 0.2
         self.hard_audio_threshold = 0.5
         self.target_fpr = None
         self.calibration_note = "No calibrated threshold file found."
@@ -143,7 +143,7 @@ class DeepFakeDetector:
             with self.calibration_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             self.operating_threshold = float(data.get("operating_threshold", self.operating_threshold))
-            self.soft_audio_threshold = float(data.get("soft_audio_threshold", self.operating_threshold))
+            self.soft_audio_threshold = float(data.get("soft_audio_threshold", self.soft_audio_threshold))
             self.hard_audio_threshold = float(data.get("hard_audio_threshold", self.hard_audio_threshold))
             self.target_fpr = data.get("target_fpr")
             self.calibration_status = data.get("status", "calibrated")

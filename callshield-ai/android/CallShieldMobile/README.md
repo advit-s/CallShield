@@ -1,6 +1,8 @@
 # CallShield Mobile Test App
 
-This Android proof-of-concept is a backend-connected test app. The backend is required for live transcript output, CNN deepfake scoring, risk fusion, and the real backend log-mel spectrogram shown in the app.
+This Android proof-of-concept is a backend-connected test app. The backend is required for live transcript output, CNN deepfake scoring, risk fusion, and the real backend log-mel spectrogram shown in the app. The Python backend must run separately for full ASR and deepfake inference; the app does not process these locally.
+
+Pre-built APKs are published via GitHub Releases and are not committed to this repository.
 
 The app records 8-second microphone WAV chunks and sends each chunk to the CallShield API:
 
@@ -38,6 +40,14 @@ Physical phone:   http://YOUR_LAPTOP_LAN_IP:8010
 ```
 
 For a physical phone, make sure the phone and laptop are on the same Wi-Fi network and Windows Firewall allows inbound traffic to the backend port.
+
+To expose the backend without port-forwarding, use Cloudflare Tunnel:
+
+```powershell
+.\cloudflared.exe tunnel --url http://localhost:8000
+```
+
+Cloudflare assigns a public `https://` URL. Share that URL with the Android device. Use HTTPS tunnels (not raw HTTP) for any remote or production review. Local `http://` on the same Wi-Fi network is fine for ad-hoc testing.
 
 Tap `Test server` before recording. The app checks `/health` and blocks recording if the backend URL is blank, unreachable, or using the emulator-only `10.0.2.2` address on a physical phone.
 

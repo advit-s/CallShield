@@ -70,7 +70,7 @@ def test_trained_checkpoint_status_returns_numeric_score_and_used_in_fusion(tmp_
     detector.model_status = "trained_model_loaded"
     detector.device = "cpu"
     detector.operating_threshold = 0.5
-    detector.soft_audio_threshold = 0.1978759765625
+    detector.soft_audio_threshold = 0.161376953125
     detector.hard_audio_threshold = 0.5
     detector.target_fpr = 0.1
     detector.calibration_status = "calibrated"

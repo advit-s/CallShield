@@ -12,13 +12,15 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 final class CallShieldApiClient {
+ private JSONObject lastResponse;
     JSONObject healthCheck(String baseUrl) throws Exception {
         URL url = new URL(cleanBase(baseUrl) + "/health");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(10000);
         connection.setRequestMethod("GET");
-        return readJsonResponse(connection);
+        lastResponse = readJsonResponse(connection);
+ return lastResponse;
     }
 
     JSONObject analyzeAudio(String baseUrl, String callId, byte[] wavBytes) throws Exception {
@@ -45,7 +47,8 @@ final class CallShieldApiClient {
             writeLine(out, "--" + boundary + "--");
         }
 
-        return readJsonResponse(connection);
+        lastResponse = readJsonResponse(connection);
+ return lastResponse;
     }
 
     private static String cleanBase(String baseUrl) {
