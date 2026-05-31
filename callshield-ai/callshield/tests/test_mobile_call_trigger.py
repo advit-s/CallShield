@@ -255,3 +255,71 @@ def test_real_world_test_template_exists():
     assert "ASR quality" in template
     assert "Deepfake false alarm" in template
     assert "create_real_world_test_report" in script
+
+
+def test_mobile_ui_layout_regression():
+    activity = (
+        ANDROID_MAIN
+        / "java"
+        / "ai"
+        / "callshield"
+        / "mobile"
+        / "MainActivity.java"
+    ).read_text(encoding="utf-8")
+
+    # Backend setup helper exists
+    assert "Backend URL required" in activity
+    assert "Open Settings" in activity
+
+    # Speaker Assist button exists and uses existing speaker assist logic
+    assert "Speaker Assist" in activity
+    assert "enableSpeakerphoneAssist" in activity
+
+    # Save Last Chunk button exists and is not automatic
+    assert "Save Last Chunk" in activity
+    assert "last_chunk_" in activity
+
+    # History delete/clear actions exist with confirmation
+    assert "Clear History" in activity
+    assert "deleteHistoryEntry" in activity
+    assert "Delete all saved scans?" in activity
+    assert "AlertDialog.Builder" in activity
+
+    # Bottom nav still only has Scan / History / Settings
+    assert "TAB_SCAN" in activity
+    assert "TAB_HIST" in activity
+    assert "TAB_SET" in activity
+    # Ensure no other bottom tabs exist
+    assert "TAB_" not in activity.replace("TAB_SCAN", "").replace("TAB_HIST", "").replace("TAB_SET", "")
+
+    # Fake history strings are still absent
+    forbidden_history = [
+        "amazon", "bank", "joe",
+        "+1 (415) 555-0118", "+1 (212) 555-0188",
+        "+91 98765-43210", "+1 (888) 280-4331", "+1 (800) 555-0142"
+    ]
+    for fh in forbidden_history:
+        assert fh not in activity.lower()
+
+    # Existing method names/strings are preserved
+    assert "startScan" in activity
+    assert "sendChunk" in activity
+    assert "showResp" in activity
+    assert "finalSum" in activity
+    assert "riskKicker" in activity
+    assert "riskLabel" in activity
+    assert "riskScore" in activity
+    assert "Real call mode" in activity
+    assert "CallShieldArmedNotifier.showArmed" in activity
+
+    # Assert old UI components are not present
+    assert "🔍" not in activity
+    assert "📋" not in activity
+    assert "⚙" not in activity
+    assert "C_PURPLE" not in activity
+    assert "grad(\"#0C0820\"" not in activity
+    assert "grad(\"#1A0F2E\"" not in activity
+    assert "THREE-SIGNAL ANALYSIS" not in activity
+    assert "OVERALL RISK SCORE" not in activity
+    assert "START SCAN" not in activity
+

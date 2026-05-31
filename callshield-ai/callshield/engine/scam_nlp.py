@@ -456,7 +456,7 @@ class ScamLanguageEngine:
     "finance_scam": ScamType.JOB_INVESTMENT_SCAM,
 }
 
- return type_map.get(best_type, ScamType.UNKNOWN), best_score
+        return type_map.get(best_type, ScamType.UNKNOWN), best_score
 
     @staticmethod
     def _has_direct_payment_pressure(text_lower: str) -> bool:

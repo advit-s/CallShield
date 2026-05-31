@@ -97,6 +97,24 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 app.add_middleware(TimingMiddleware)
+
+
+@app.on_event("startup")
+def _banner() -> None:
+    host = os.environ.get("CALLSHIELD_HOST", "0.0.0.0")
+    port = os.environ.get("CALLSHIELD_PORT", "8010")
+    emulator_url = f"http://10.0.2.2:{port}"
+    print()
+    print("=" * 52)
+    print(f"  CallShield API v{APP_VERSION}")
+    print(f"  Listening on http://{host}:{port}")
+    print()
+    print("  Android  →  Backend URL in app:")
+    print(f"    Emulator : {emulator_url}")
+    print(f"    Physical : http://<your-lan-ip>:{port}")
+    print(f"    Health   : http://localhost:{port}/health")
+    print("=" * 52)
+    print()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),

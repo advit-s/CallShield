@@ -12,7 +12,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 final class CallShieldApiClient {
- private JSONObject lastResponse;
+ /*package*/ JSONObject lastResponse;
     JSONObject healthCheck(String baseUrl) throws Exception {
         URL url = new URL(cleanBase(baseUrl) + "/health");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
